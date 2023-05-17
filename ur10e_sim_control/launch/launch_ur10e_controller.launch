@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+
+  <include file="$(find ur_gazebo)/launch/ur10e_bringup.launch" />
+  
+  <node name="CartesianController" pkg="ur10e_sim_control" type="CartControl_v3.py" output="screen" launch-prefix="gnome-terminal --command" />
+  <node name="talker" pkg="ur10e_sim_control" type="goalPublisher.py" output="screen" launch-prefix="gnome-terminal --command" />
+
+</launch>
