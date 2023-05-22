@@ -14,7 +14,7 @@ import datetime
 import quaternion
 import pathlib
 
-from Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain
+from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain
 
 #TODO NOW
 #Improve code
