@@ -1,6 +1,6 @@
 #Ignore older versions of the project
 ur10e_sim_control/src/CartControl_v2.py
-ur10e_sim_control/src/CartesianVelocityControl.py
+ur10e_sim_control/src/CartesianVelControl.py
 ur10e_sim_control/src/DQ_Controller.py
 ur10e_sim_control/src/IK.py
 ur10e_sim_control/src/speedUI.py
