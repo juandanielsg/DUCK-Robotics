@@ -1,0 +1,11 @@
+#goal
+Pose goalpose
+duration max_time
+---
+#result
+bool success
+Pose[] trajectory
+---
+#feedback
+int64 iterations
+duration time_elapsed
