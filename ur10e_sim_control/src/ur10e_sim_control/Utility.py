@@ -5,17 +5,28 @@ import numpy.matlib as matlib
 from math import sin, cos, atan2, sqrt, asin
 from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
+from immortals_messages.msg import Pose, PoseArray
+from std_msgs.msg import Bool
+import rospy
+from collections import deque
 
 @dataclass
 class KinematicChain():
 
     base: np.array = np.array([])
     homogeneousMatrixList: list = field(default_factory=list)
+    tool: np.array = np.eye(4)
+    invtool: np.array = np.eye(4)
     size: int = 0
 
     def setBase(self, Matrix):
 
         setattr(self, "base", Matrix)
+    
+    def setTool(self, Matrix):
+
+        setattr(self, "tool", Matrix)
+        setattr(self, "invtool", TransInv(Matrix))
 
     def append(self, Matrix) -> None:
 
@@ -46,6 +57,10 @@ class KinematicChain():
             currentHomogeneousTransformMatrix = currentHomogeneousTransformMatrix @ element
             forwardKinematicMatrixList.append(currentHomogeneousTransformMatrix)
         
+        
+        currentHomogeneousTransformMatrix = currentHomogeneousTransformMatrix @ self.tool
+        forwardKinematicMatrixList.append(currentHomogeneousTransformMatrix)
+        
         return forwardKinematicMatrixList
 
     def ForwardKinematicsJointPose(self,index) -> np.array:
@@ -58,13 +73,62 @@ class KinematicChain():
         return currentHomogeneousTransformMatrix
 
 
-class Pose(TypedDict):
-    x: float
-    y: float
-    z: float
-    roll: float
-    pitch: float
-    yaw: float
+def list2Pose(poselist: list):
+
+    pose = Pose()
+    pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw = poselist
+    return pose
+
+def position2Pose(position: np.array):
+
+    return np.append(position, np.zeros(3))
+
+
+
+def TransToRp(T):
+    """Converts a homogeneous transformation matrix into a rotation matrix
+    and position vector
+
+    :param T: A homogeneous transformation matrix
+    :return R: The corresponding rotation matrix,
+    :return p: The corresponding position vector.
+
+    Example Input:
+        T = np.array([[1, 0,  0, 0],
+                      [0, 0, -1, 0],
+                      [0, 1,  0, 3],
+                      [0, 0,  0, 1]])
+    Output:
+        (np.array([[1, 0,  0],
+                   [0, 0, -1],
+                   [0, 1,  0]]),
+         np.array([0, 0, 3]))
+    """
+    T = np.array(T)
+    return T[0: 3, 0: 3], T[0: 3, 3]
+
+def TransInv(T):
+    """Inverts a homogeneous transformation matrix
+
+    :param T: A homogeneous transformation matrix
+    :return: The inverse of T
+    Uses the structure of transformation matrices to avoid taking a matrix
+    inverse, for efficiency.
+
+    Example input:
+        T = np.array([[1, 0,  0, 0],
+                        [0, 0, -1, 0],
+                        [0, 1,  0, 3],
+                        [0, 0,  0, 1]])
+    Output:
+        np.array([[1,  0, 0,  0],
+                    [0,  0, 1, -3],
+                    [0, -1, 0,  0],
+                    [0,  0, 0,  1]])
+    """
+    R, p = TransToRp(T)
+    Rt = np.array(R).T
+    return np.r_[np.c_[Rt, -np.dot(Rt, p)], [[0, 0, 0, 1]]]
 
 
 def build_se3_transform(xyzrpy):
@@ -193,3 +257,187 @@ def euler_from_quaternion(w, x, y, z):
     yaw_z = atan2(t3, t4)
 
     return [roll_x, pitch_y, yaw_z] # in radians
+
+
+
+#TODO: Light Hitbox class and derivates
+
+class LightHitbox():
+
+    def __init__(self, pose, diameter):
+
+        self.diameter = diameter
+        self.radius = diameter/2
+        self.position = np.array(pose[:3])
+
+    def distance(self, Hitbox2):
+
+        return np.linalg.norm(self.position - Hitbox2.position)
+
+    def collides(self, Hitbox2):
+
+        return True if self.distance(Hitbox2) < (self.radius + Hitbox2.radius) else False
+    
+    def updatePosition(self, position):
+
+        self.position = np.array(position)
+    
+    def __str__(self):
+
+        return "Light hitbox. Origin: " + str(self.position) + " / Diameter: " + str(self.diameter)
+
+
+
+class LightHitboxBodyLink():
+
+    """
+    This class allows the user to define simple body links, and has some handy methods for checking collisions
+    """
+
+    def __init__(self, startPose, endPose, width, label=0):
+
+        self.endPose = endPose
+        self.endPosition = endPose[:3]
+        self.startPose = startPose
+        self.startPosition = startPose[:3]
+        self.length = np.linalg.norm(self.endPosition - self.startPosition)
+        self.vector = (self.endPosition - self.startPosition)/self.length
+        self.width = width
+        self.label = label
+
+        self.ratio = int(self.length * 4 / self.width)
+        
+        self.hitboxes = self.populateLink()
+    
+    def populateLink(self):
+
+        point_poses = np.linspace(self.startPosition, self.endPosition, self.ratio)
+        hitboxes = [LightHitbox(pose=position2Pose(point), diameter=self.width) for point in point_poses]
+
+        return hitboxes
+    
+    def updateLink(self):
+
+        point_poses = np.linspace(self.startPosition, self.endPosition, self.ratio)
+
+        for i in range(len(point_poses)):
+
+            self.hitboxes[i].updatePosition(point_poses[i])
+
+    def updatePosition(self, start, end):
+
+        self.startPosition = start[:3]
+        self.endPosition = end[:3]
+        self.updateLink()
+
+    def collide(self, link2):
+
+        for box in self.hitboxes:
+            for box_ in link2.hitboxes:
+                if box.collides(box_):
+                    print(box)
+                    print(box_)
+                    return True
+
+        return False
+    
+    def collideAdjacent(self, link2):
+        """Only use this method for adjacent links"""
+
+        box = self.hitboxes[-1]
+        for box_ in link2.hitboxes:
+            if box.collides(box_):
+                print(box)
+                print(box_)
+                return True
+            
+        return False
+
+    def __str__(self) -> str:
+        
+        return "Chain. Label: " + str(self.label) + " / Start: " + str(self.startPosition) + " / End: " + str(self.endPosition)
+
+class LightHitboxGroup():
+
+    """
+    Call me Fernando Alonso the way I'm doing Magic here. (Lightweight, duh)
+    """
+
+    def __init__(self,sub_topic, pub_topic):
+
+        self.bodyChain = []
+        self.externalObjects = [] #This is yet to be implemented
+        self.init_()
+        self.robotSubscriber = rospy.Subscriber(sub_topic, PoseArray, self.robotCallback)
+        self.collisionPublisher = rospy.Publisher(pub_topic, Bool, queue_size=1, latch=True)
+        
+        #TODO: Grab some values to initialize this chain. This should be easy. - DONE
+        #TODO: Add a function to get MarkerArray from all - DONE
+        #TODO: Add a function to initialize bodychains - DONE
+
+    def init_(self):
+
+        #Poses for starters
+        poses = [
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], #Base
+        [0.0, 0.0, 0.1807, 0, 0, 0], #joint1
+        [0.004611027447044222, 3.9578729083808876e-05, 0.7933826477544528, 0, 0, 0], #joint 2
+        [0.5732271504231331, 0.004920292136765654, 0.7357520497333189, 0, 0, 0], #joint 3
+        [0.5717323899058908, 0.1790638771205258, 0.7357520497333189, 0, 0, 0], #wrist1
+        [0.6915777911753764, 0.1800925694723422, 0.7355420816374054, 0, 0, 0], #wrist2
+        [0.6913736393188675, 0.18008762839210732, 0.6189922605409953, 0, 0, 0], #wrist3
+        [0.690497826978632, 0.18006643113670237, 0.1189930280381633, 0, 0, 0]] #tool
+
+        poses = [np.array(pose) for pose in poses]
+        widths = [0.56, 0.56, 0.25, 0.135, 0.135, 0.135, 0.05]
+        labels = [2, 3, 1, 1, 1, 1, 5]
+        posepairs = [(poses[i], poses[i+1], widths[i], labels[i]) for i in range(len(poses)-1)]
+        self.bodyChain = [LightHitboxBodyLink(posepair[0], posepair[1], posepair[2], label=posepair[3]) for posepair in posepairs]
+
+    def robotCallback(self,msg):
+        poses = msg.element_poses
+        poses = [np.array([pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw]) for pose in poses]
+        posepairs = [(poses[i], poses[i+1]) for i in range(len(poses)-1)]
+        [self.bodyChain[i+1].updatePosition(posepairs[i][0], posepairs[i][1]) for i in range(len(posepairs))] #This is a flex tbh
+        self.solve()
+    
+    def collisionCheck(self):
+        
+        chain = self.bodyChain
+        index = len(chain)-1
+        currentLink = chain[index]
+
+        while index > 0:
+            
+            first = True
+
+            for i in range(index-1, -1, -1):
+
+                if currentLink.label != chain[i].label:
+
+                    if first:
+
+                        first = False
+                        
+                    else:
+
+                        if currentLink.collide(chain[i]):
+                            return True
+                        
+                else:
+
+                    first = False
+            
+            
+            index -= 1
+            #print(index)
+            currentLink = chain[index]
+                
+        return False
+    
+    def solve(self):
+        """Solves self-collision in a fast yet precise way"""
+
+        msg = Bool()
+        msg.data = self.collisionCheck()
+        self.collisionPublisher.publish(msg)
