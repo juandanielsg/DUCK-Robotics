@@ -16,6 +16,6 @@ WIP (QOL):
 
 WIP (Functionality):
 - Add joint pose control for each joint.
-- Add self-collision avoidance.
+- Add self-collision avoidance. [DONE]
 - Add manipulability maximizing path planning.
 - Add KDL support.
