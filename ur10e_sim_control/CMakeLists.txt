@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   trajectory_msgs
+  visualization_msgs
   immortals_messages
 )
 
@@ -109,7 +110,7 @@ catkin_python_setup()
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES ur10e_sim_control
-#  CATKIN_DEPENDS gazebo_msgs roscpp rospy sensor_msgs std_msgs trajectory_msgs
+#  CATKIN_DEPENDS gazebo_msgs roscpp rospy sensor_msgs std_msgs trajectory_msgs visualization_msgs immortals_messages
 #  DEPENDS system_lib
 )
 
@@ -168,6 +169,8 @@ catkin_install_python(PROGRAMS
   #src/Utility.py
   src/CartControl_v3.py
   src/CartControl_v4.py
+  src/VisualizerNode.py
+  src/collisionCheckerNode.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
