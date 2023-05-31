@@ -5,4 +5,3 @@ ur10e_sim_control/src/DQ_Controller.py
 ur10e_sim_control/src/IK.py
 ur10e_sim_control/src/speedUI.py
 ur10e_sim_control/src/logs/*
-ur10e_sim_control/src/Utility.py
