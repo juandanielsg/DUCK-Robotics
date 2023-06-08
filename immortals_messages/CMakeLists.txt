@@ -53,6 +53,11 @@ add_message_files(
   Pose.msg
   Path.msg
   PoseArray.msg
+  Reply.msg
+  PathRequest.msg
+  PoseAndFlags.msg
+  IKRequest.msg
+  IKReply.msg
 )
 
 ## Generate services in the 'srv' folder

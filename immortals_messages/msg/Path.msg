@@ -1,1 +1,2 @@
 Pose[] trajarray
+bool success
