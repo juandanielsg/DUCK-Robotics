@@ -5,10 +5,24 @@ import numpy.matlib as matlib
 from math import sin, cos, atan2, sqrt, asin
 from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
-from immortals_messages.msg import Pose, PoseArray
+from immortals_messages.msg import Pose, PoseArray, Reply
 from std_msgs.msg import Bool
 import rospy
-from collections import deque
+
+nonzero = 1e-09
+
+#Just for fancy terminal work
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 
 @dataclass
 class KinematicChain():
@@ -264,6 +278,8 @@ def euler_from_quaternion(w, x, y, z):
 
 class LightHitbox():
 
+    __slots__ = {'diameter', 'radius', 'position'}
+
     def __init__(self, pose, diameter):
 
         self.diameter = diameter
@@ -293,6 +309,8 @@ class LightHitboxBodyLink():
     """
     This class allows the user to define simple body links, and has some handy methods for checking collisions
     """
+
+    __slots__ = {'endPose', 'endPosition', 'startPose', 'startPosition', 'length', 'vector', 'width', 'label', 'ratio', 'hitboxes'}
 
     def __init__(self, startPose, endPose, width, label=0):
 
@@ -363,13 +381,15 @@ class LightHitboxGroup():
     Call me Fernando Alonso the way I'm doing Magic here. (Lightweight, duh)
     """
 
+    __slots__ = {'bodyChain', 'externalObjects', 'robotSubscriber', 'collisionPublisher'}
+
     def __init__(self,sub_topic, pub_topic):
 
         self.bodyChain = []
         self.externalObjects = [] #This is yet to be implemented
         self.init_()
-        self.robotSubscriber = rospy.Subscriber(sub_topic, PoseArray, self.robotCallback)
-        self.collisionPublisher = rospy.Publisher(pub_topic, Bool, queue_size=1, latch=True)
+        self.robotSubscriber = rospy.Subscriber(sub_topic, PoseArray, self.robotCallback, queue_size=1000)
+        self.collisionPublisher = rospy.Publisher(pub_topic, Reply, queue_size=1000, latch=True)
         
         #TODO: Grab some values to initialize this chain. This should be easy. - DONE
         #TODO: Add a function to get MarkerArray from all - DONE
@@ -399,7 +419,7 @@ class LightHitboxGroup():
         poses = [np.array([pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw]) for pose in poses]
         posepairs = [(poses[i], poses[i+1]) for i in range(len(poses)-1)]
         [self.bodyChain[i+1].updatePosition(posepairs[i][0], posepairs[i][1]) for i in range(len(posepairs))] #This is a flex tbh
-        self.solve()
+        self.solve(msg.id)
     
     def collisionCheck(self):
         
@@ -435,9 +455,67 @@ class LightHitboxGroup():
                 
         return False
     
-    def solve(self):
+    def solve(self, id):
         """Solves self-collision in a fast yet precise way"""
 
-        msg = Bool()
-        msg.data = self.collisionCheck()
+        msg = Reply()
+        msg.success = self.collisionCheck()
+        msg.id = id
         self.collisionPublisher.publish(msg)
+
+
+def getErrorVectors(pose,goal):
+
+    linearerror = goal[:3] - pose[:3]
+
+    w, x, y, z = get_quaternion_from_euler(goal[3],goal[4],goal[5])
+    finalQt = np.quaternion(w, x, y, z)
+    w, x, y, z = get_quaternion_from_euler(pose[3],pose[4],pose[5])
+    Qt = np.quaternion(w,x,y,z)
+
+    errorqt = finalQt * Qt.conjugate()
+
+    trueEulError = np.array(euler_from_quaternion(errorqt.w, errorqt.x, errorqt.y, errorqt.z))
+    #print(trueEulError)
+    linearNorm = np.linalg.norm(linearerror)
+    angularNorm = np.linalg.norm(trueEulError)
+
+    error = linearNorm + angularNorm
+
+    positionRatio = linearNorm/error
+    eulerRatio = 1 - positionRatio
+
+    linearerror /= (linearNorm + 1e-09)
+    trueEulError /= (angularNorm + 1e-09)
+
+    return [error, linearerror, trueEulError, positionRatio, eulerRatio]
+
+def getCloserPoint(pose, linearVector, angularVector, ratio1, ratio2, thresh=0.5):
+
+    linearIncrement = linearVector * (ratio1 * thresh)
+    angularIncrement = angularVector * (ratio2 * thresh)
+
+    pose_ = pose + np.append(linearIncrement, angularIncrement)
+    return pose_
+
+def getError(pose,goal):
+
+    error = np.array([(goal[i] - pose[i]) for i in range(3)])
+
+    
+    w, x, y, z = get_quaternion_from_euler(goal[3],goal[4],goal[5])
+    finalQt = np.quaternion(w, x, y, z)
+    w, x, y, z = get_quaternion_from_euler(pose[3],pose[4],pose[5])
+    Qt = np.quaternion(w,x,y,z)
+
+    errorqt = finalQt * Qt.conjugate()
+    trueEulError = np.array(euler_from_quaternion(errorqt.w, errorqt.x, errorqt.y, errorqt.z))
+
+    error = np.linalg.norm(error) + np.linalg.norm(trueEulError)
+    
+    return error
+
+
+def pose2Array(pose):
+
+    return np.array([pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw])

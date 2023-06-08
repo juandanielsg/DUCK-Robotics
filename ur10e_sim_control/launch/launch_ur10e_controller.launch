@@ -3,10 +3,38 @@
 
   <include file="$(find ur_gazebo)/launch/ur10e_bringup.launch" />
   <include file="$(find ur_description)/launch/view_ur10e.launch"/>
-  
-  <node name="CartesianController" pkg="ur10e_sim_control" type="CartControl_v4.py" output="screen" launch-prefix="gnome-terminal --command"/>
-  <node name="talker" pkg="ur10e_sim_control" type="goalPublisher.py" output="screen" launch-prefix="gnome-terminal --command"/>
-  <node name="VisualizerNode" pkg="ur10e_sim_control" type="VisualizerNode.py" output="screen" launch-prefix="gnome-terminal --command"/>
-  <node name="collisionNode" pkg="ur10e_sim_control" type="collisionCheckerNode.py" output="screen" launch-prefix="gnome-terminal --command"/>
+
+  <arg name="message_node" default="true"/>
+  <arg name="visualizer" default="true"/>
+  <arg name="collision_node" default="true"/>
+  <arg name="planner" default="true"/>
+  <arg name="IK_solver" default="true"/>
+  <arg name="config_setter" default="true"/>
+
+  <arg name="controller_type" default="poseC"/>
+  <arg name="tool" default="none"/>
+
+  <group if="$(arg config_setter)">
+    <node name="setConfigurationNode" pkg="ur10e_sim_control" type="setRobotConfig.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+  <group if="$(arg message_node)">
+    <node name="talker" pkg="ur10e_sim_control" type="goalPublisher.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+  <group if="$(arg visualizer)">
+    <node name="VisualizerNode" pkg="ur10e_sim_control" type="VisualizerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+  <group if="$(arg collision_node)">
+    <node name="collisionNode" pkg="ur10e_sim_control" type="collisionCheckerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+  <group if="$(arg planner)">
+    <node name="PlanningNode" pkg="ur10e_sim_control" type="PlannerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+  <group  if="$(arg IK_solver)">
+    <node name="IK_Solver" pkg="ur10e_sim_control" type="IKSolverNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <node name="CartesianController" pkg="ur10e_sim_control" type="CartControl_v6.py" output="screen" launch-prefix="gnome-terminal --"/>
+  <param name="controller_type" type="string" value="$(arg controller_type)"/>
+  <param name="tool" type="string" value="$(arg tool)"/>
 
 </launch>

@@ -212,7 +212,7 @@ class Hitbox(MarkerData):
     """Class for collision avoidance. Assumes all hitboxes will be spheres.
     """
 
-    def __init__(self, pose, shape=Marker.SPHERE, color = (1,1,0,0), size = (0.01, 0.01, 0.01)):
+    def __init__(self, pose, shape=Marker.SPHERE, color = (0.3,1,0,0), size = (0.01, 0.01, 0.01)):
 
         super().__init__(pose, shape, color, size)
         self.diameter = size[0]
@@ -267,7 +267,7 @@ class HitboxBodyLink():
     def populateLink(self):
 
         point_poses = np.linspace(self.startPosition, self.endPosition, self.ratio)
-        hitboxes = [Hitbox(pose=position2Pose(point), color=(1,0,0,1), size=(self.width, self.width, self.width)) for point in point_poses]
+        hitboxes = [Hitbox(pose=position2Pose(point), color=(0.3,0,0,1), size=(self.width, self.width, self.width)) for point in point_poses]
 
         return hitboxes
     
@@ -286,8 +286,6 @@ class HitboxBodyLink():
         self.updateLink()
 
     def collide(self, link2):
-
-        
 
         for box in self.hitboxes:
             for box_ in link2.hitboxes:
@@ -308,40 +306,56 @@ class HitboxGroup():
     Call me Fernando Alonso the way I'm doing Magic here.
     """
 
-    def __init__(self,sub_topic, visual_pub_topic, pub_topic):
+    __slots__ = {'bodyChain', 'externalObjects', 'visualPublisher', 'robotSubscriber', 'collisionPublisher', 'tool'}
+
+    def __init__(self,sub_topic, visual_pub_topic, pub_topic, tool=None):
 
         self.bodyChain = []
         self.externalObjects = [] #This is yet to be implemented
         self.visualPublisher = rospy.Publisher(visual_pub_topic, MarkerArray, queue_size=1, latch=True)
 
 
-        self.init_()
+        self.init_(tool)
         self.robotSubscriber = rospy.Subscriber(sub_topic, PoseArray, self.robotCallback)
         self.collisionPublisher = rospy.Publisher(pub_topic, Bool, queue_size=1)
         
-
+        self.tool = tool
         
 
         #TODO: Grab some values to initialize this chain. This should be easy.
         #TODO: Add a function to get MarkerArray from all - DONE
         #TODO: Add a function to initialize bodychains
 
-    def init_(self):
+    def init_(self, tool):
 
         #Poses for starters
-        poses = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], #Base
-        [0.0, 0.0, 0.1807, 0, 0, 0], #joint1
-        [0.004611027447044222, 3.9578729083808876e-05, 0.7933826477544528, 0, 0, 0], #joint 2
-        [0.5732271504231331, 0.004920292136765654, 0.7357520497333189, 0, 0, 0], #joint 3
-        [0.5717323899058908, 0.1790638771205258, 0.7357520497333189, 0, 0, 0], #wrist1
-        [0.6915777911753764, 0.1800925694723422, 0.7355420816374054, 0, 0, 0], #wrist2
-        [0.6913736393188675, 0.18008762839210732, 0.6189922605409953, 0, 0, 0], #wrist3
-        [0.690497826978632, 0.18006643113670237, 0.1189930280381633, 0, 0, 0]] #tool
+        if tool == "cylinder1":
+            poses = [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], #Base
+            [0.0, 0.0, 0.1807, 0, 0, 0], #joint1
+            [0.004611027447044222, 3.9578729083808876e-05, 0.7933826477544528, 0, 0, 0], #joint 2
+            [0.5732271504231331, 0.004920292136765654, 0.7357520497333189, 0, 0, 0], #joint 3
+            [0.5717323899058908, 0.1790638771205258, 0.7357520497333189, 0, 0, 0], #wrist1
+            [0.6915777911753764, 0.1800925694723422, 0.7355420816374054, 0, 0, 0], #wrist2
+            [0.6913736393188675, 0.18008762839210732, 0.6189922605409953, 0, 0, 0], #wrist3
+            [0.690497826978632, 0.18006643113670237, 0.1189930280381633, 0, 0, 0]] #tool
+            poses = [np.array(pose) for pose in poses]
+            widths = [0.56, 0.56, 0.25, 0.135, 0.135, 0.135, 0.05]
+            labels = [2,3,1,1,1,1,1]
+        
+        else:
+            poses = [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], #Base
+            [0.0, 0.0, 0.1807, 0, 0, 0], #joint1
+            [0.004611027447044222, 3.9578729083808876e-05, 0.7933826477544528, 0, 0, 0], #joint 2
+            [0.5732271504231331, 0.004920292136765654, 0.7357520497333189, 0, 0, 0], #joint 3
+            [0.5717323899058908, 0.1790638771205258, 0.7357520497333189, 0, 0, 0], #wrist1
+            [0.6915777911753764, 0.1800925694723422, 0.7355420816374054, 0, 0, 0], #wrist2
+            [0.6913736393188675, 0.18008762839210732, 0.6189922605409953, 0, 0, 0]] #wrist3
+            poses = [np.array(pose) for pose in poses]
+            widths = [0.56, 0.56, 0.25, 0.135, 0.135, 0.135]
+            labels = [2,3,1,1,1,1]
 
-        poses = [np.array(pose) for pose in poses]
-        widths = [0.56, 0.56, 0.25, 0.135, 0.135, 0.135, 0.05]
-        labels = [2,3,1,1,1,1,1]
         posepairs = [(poses[i], poses[i+1], widths[i], labels[i]) for i in range(len(poses)-1)]
         self.bodyChain = [HitboxBodyLink(posepair[0], posepair[1], posepair[2], label=posepair[3]) for posepair in posepairs]
         self.display()
@@ -351,7 +365,11 @@ class HitboxGroup():
         poses = [np.array([pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw]) for pose in poses]
         posepairs = [(poses[i], poses[i+1]) for i in range(len(poses)-1)]
         #print(len(posepairs))
-        [self.bodyChain[i+1].updatePosition(posepairs[i][0], posepairs[i][1]) for i in range(len(posepairs))] #This is a flex tbh
+        if self.tool:
+            [self.bodyChain[i+1].updatePosition(posepairs[i][0], posepairs[i][1]) for i in range(len(posepairs))] #This is a flex tbh
+        
+        else:
+            [self.bodyChain[i+1].updatePosition(posepairs[i][0], posepairs[i][1]) for i in range(len(posepairs)-1)]
         #self.display()
     
     def collisionCheck(self):

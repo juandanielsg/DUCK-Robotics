@@ -168,9 +168,12 @@ catkin_install_python(PROGRAMS
   src/goalPublisher.py
   #src/Utility.py
   src/CartControl_v3.py
-  src/CartControl_v4.py
+  src/CartControl_v6.py
   src/VisualizerNode.py
   src/collisionCheckerNode.py
+  src/PlannerNode.py
+  src/IKSolverNode.py
+  src/setRobotConfig.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
