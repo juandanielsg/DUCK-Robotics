@@ -1,21 +1,9 @@
 #!/usr/bin/python3
 
 import rospy
-from std_msgs.msg import Float64MultiArray
-from sensor_msgs.msg import JointState
-from immortals_messages.msg import Pose, Path
-import numpy as np
-import math
-import scipy
-from math import sin, cos, atan2, sqrt
 import os
-import time
-import datetime
-import quaternion
-import pathlib
-import rosservice
 from gazebo_msgs.srv import SetModelConfiguration
-
+from ur10e_sim_control.Utility import bcolors
 
 def setconfig_client(message):
     rospy.wait_for_service('/gazebo/set_model_configuration')
@@ -40,9 +28,10 @@ def main():
 
 
     while not rospy.is_shutdown():
-        os.system("cls")
+        os.system("clear")
+        print(bcolors.BOLD + bcolors.OKGREEN + "Set the end effector angles manually here!" + bcolors.ENDC)
         print("Set a list of angles for the robot configuration or use a keyword: ")
-        print("Saved keywords: " + str(keywords.keys()))
+        print("Saved keywords: ", keywords.keys())
         user_input = input("Write here (separate joint radian angles by commas): ")
 
         if user_input in keywords.keys():

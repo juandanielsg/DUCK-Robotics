@@ -30,10 +30,10 @@ class UR10e():
                  'pose1', 'pose2', 'pose3', 'pose4', 'pose5', 'pose6', 'toolpose', 'J', 'J_inv', 'jointSpeed', 'Kp', 'Ki', 'Kd', 'dt', 'P', 'I', 'D',
                 'error', 'prev_e', 'sum_e', 'logfilename', 'log', 'qt', 'interpolations', 'num_error', 'goal', 'goalSpeed', 'goalqt', 'tmpGoal', 'tmpIndex', 'maxIndex',
                 'receivedGoal', 'planning', 'solvingIK', #Flags
-                 'goal_angles', 'IKPub', 'IKSub', 'controller', 'controllerFunc', 'previousPose'
+                 'goal_angles', 'IKPub', 'IKSub', 'controller', 'controllerFunc', 'previousPose', 'currentEstimatePose'
                 }
 
-    def __init__(self, logfile=None, sim=True, tool='none', controller='poseC'):
+    def __init__(self, logfile=None, sim=True, tool='none', controller='cartP'):
         
         # Do something on shutdown
         rospy.on_shutdown(self.onShutdown)
@@ -41,7 +41,7 @@ class UR10e():
         # K value
         self.K = 1
         
-        #Denavit-Hartenberg parameters - Now modifiable.
+        #Denavit-Hartenberg parameters - Not modifiable.
         self.d = [0.1807, 0, 0, 0.17415, 0.11985, 0.11655]
         self.a = [0, -0.6127, -0.57155, 0, 0, 0]
         self.alpha = [math.pi/2, 0, 0, math.pi/2, -math.pi/2, 0]
@@ -60,8 +60,8 @@ class UR10e():
         self.clamp_speed_1 = np.array([-0.05, -0.05, -0.05, -0.05, -0.05, -0.05])
         self.clamp_speed_2 = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
 
-        self.clamp_speed_3 = np.array([-0.01, -0.01, -0.01, -0.01, -0.01, -0.01])
-        self.clamp_speed_4 = np.array([0.01, 0.01, 0.01, 0.01, 0.01, 0.01])
+        self.clamp_speed_3 = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1])
+        self.clamp_speed_4 = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
 
         # **NOVELTY** Added Kinematic chain to the system
@@ -104,8 +104,8 @@ class UR10e():
         self.jointSpeed = [None]*6
 
         #PID Params
-        self.Kp = 2
-        self.Ki = 0.1
+        self.Kp = 1
+        self.Ki = 0.01
         self.Kd = 0.1
 
         self.dt = 0.001
@@ -119,6 +119,7 @@ class UR10e():
         self.sum_e = 0
 
         self.previousPose = None
+        self.currentEstimatePose = None
 
         #Generate a new logfile to collect data - WIP
         if logfile is not None:
@@ -588,6 +589,8 @@ class UR10e():
     
     def setGoal(self,goal,plan=False,interp=False):
 
+        msg = Path()
+
         if self.controller == "cartP":
 
             self.goal = goal
@@ -629,7 +632,15 @@ class UR10e():
 
             while self.an1 is None:
                 pass
+            
+            while self.toolpose is None:
+                self.calcEveryH()
+                self.FK()
+
+            msg.trajarray = [list2Pose(self.toolpose)] + [list2Pose(goal)]
+            self.pathPub.publish(msg)
             self.solveIK(goal)
+            
 
     def solveIK(self, goal):
 
@@ -660,7 +671,7 @@ class UR10e():
         self.planRequester.publish(msg)
     
     def getError(self,goal,scalar=False):
-        print(goal)
+        #print(goal)
         goalMat = build_se3_transform(goal)
         #print(goalMat)
         #print(self.KinChain.invtool)
@@ -773,27 +784,48 @@ class UR10e():
     def reachSpeed(self):
 
         desired_end_speed = np.array(self.goalSpeed)
+        eET = self.KinChain.tool
+        
+        vel = desired_end_speed[:3] - np.cross(np.array(desired_end_speed[3:]), eET[0:3,3])
+
+        eBE = self.KinChain.ForwardKinematics()[-1]
+
+        vel = desired_end_speed[:3] - np.cross(np.array(desired_end_speed[3:]), eBE[0:3,3])
+ 
+        desired_end_speed = np.append(vel, np.array([desired_end_speed[3:]]))
+        print(desired_end_speed)
 
         if self.previousPose is None:
 
-            self.previousPose = self.toolpose
+            self.previousPose = self.pose6
+            self.currentEstimatePose = self.pose6
             self.prev_e = np.array([0,0,0,0,0,0])
 
+        
+        _, linear, angular, _, _ = getErrorVectors(np.array(self.pose6),np.array(self.previousPose))
+        compensation = np.append(linear, angular)
+
+        error = compensation
+        self.error = error
+
+        if self.sum_e is not None:
+            self.sum_e += (error * self.dt)
+            
         else:
+            self.sum_e = error * self.dt
+        
+        P = error * self.Kp
+        I = self.sum_e * self.Ki
+        #I = np.array([0,0,0,0,0,0])
+        D = (((error - self.prev_e)/self.dt) * self.Kd)
 
-            _, linear, angular, _, _ = getErrorVectors(np.array(self.toolpose)-np.array(self.previousPose),desired_end_speed)
-            error = desired_end_speed + np.append(linear, angular)
-            #print(self.toolpose)
-            desired_end_speed = desired_end_speed + (error * self.Kp) + (((error - self.prev_e)/self.dt) * self.Kd) #PD should be enough here.
+        self.P, self.I, self.D = P, I, D
 
-            self.previousPose = self.toolpose
-            self.prev_e = error
+        self.previousPose = self.previousPose + desired_end_speed*self.dt
 
-        eET = self.KinChain.tool
+        desired_end_speed = P + I + D 
 
-        vel = np.cross(np.array(desired_end_speed[3:]), eET[0:3,3]) - np.array(desired_end_speed[:3]) 
-
-        desired_end_speed = np.append(vel, np.array([desired_end_speed[3:]]))
+        self.prev_e = error
 
         self.calculateJointSpeed(desired_end_speed)
         self.clampSpeed()
@@ -805,7 +837,7 @@ class UR10e():
             self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_3, self.clamp_speed_4)
         
         else:
-            self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_1, self.clamp_speed_2)
+            self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_3, self.clamp_speed_4)
 
         final_poses = np.array([self.a[i] + self.jointSpeed[i]*self.dt for i in range(6)])
         valid = (final_poses>=self.clamp_angle[0]) & (final_poses<=self.clamp_angle[1])

@@ -13,14 +13,17 @@ def main():
     rate = rospy.Rate(2)
     tool = rospy.get_param('tool')
     controller = visualizationController(visual_subscriber_topic="/current_pose", subscriber_topic="/path_plan", publisher_topic="/visualization_marker_array")
-    hitboxController = HitboxGroup(sub_topic="/current_poses", pub_topic="/nothing_2_see_here", visual_pub_topic="/visualization_hitboxes", tool=tool)
+    cntrl = rospy.get_param('controller_type')
+    if cntrl != "jointP":
+        hitboxController = HitboxGroup(sub_topic="/current_poses", pub_topic="/nothing_2_see_here", visual_pub_topic="/visualization_hitboxes", tool=tool)
 
     while not rospy.is_shutdown():
         
         os.system("clear")
         
-        hitboxController.collisionCheck()
-        hitboxController.display()
+        if cntrl != "jointP":
+            hitboxController.collisionCheck()
+            hitboxController.display()
         print(bcolors.OKGREEN + "Visuals rendered properly" + bcolors.ENDC)
         rate.sleep()
 

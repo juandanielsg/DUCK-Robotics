@@ -174,6 +174,7 @@ catkin_install_python(PROGRAMS
   src/PlannerNode.py
   src/IKSolverNode.py
   src/setRobotConfig.py
+  src/setConstraintNode.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

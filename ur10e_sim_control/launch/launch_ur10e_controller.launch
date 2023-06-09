@@ -10,6 +10,8 @@
   <arg name="planner" default="true"/>
   <arg name="IK_solver" default="true"/>
   <arg name="config_setter" default="true"/>
+  <arg name="constraint" default="true"/>
+
 
   <arg name="controller_type" default="poseC"/>
   <arg name="tool" default="none"/>
@@ -31,6 +33,9 @@
   </group>
   <group  if="$(arg IK_solver)">
     <node name="IK_Solver" pkg="ur10e_sim_control" type="IKSolverNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+  <group  if="$(arg constraint)">
+    <node name="constraint_setter" pkg="ur10e_sim_control" type="setConstraintNode.py" output="screen" launch-prefix="gnome-terminal --"/>
   </group>
 
   <node name="CartesianController" pkg="ur10e_sim_control" type="CartControl_v6.py" output="screen" launch-prefix="gnome-terminal --"/>

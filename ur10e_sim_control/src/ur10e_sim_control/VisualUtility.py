@@ -7,14 +7,14 @@ from math import sin, cos, atan2, sqrt, asin
 from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
 from immortals_messages.msg import Pose, PoseArray, Path
-from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain, build_se3_transform, position2Pose
+from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain, build_se3_transform, position2Pose, pose2Array, euler_to_so3
 from visualization_msgs.msg import Marker, MarkerArray
 import quaternion
 from collections import deque
 from std_msgs.msg import Bool
 
 class MarkerData():
-    """Builder class for Marker messages, so it is easier to configurate them.
+    """Builder class for Marker messages, so it is easier to configure them.
     """
 
     def __init__(self, pose, shape=Marker.SPHERE, color = (1,1,0,0), size = (0.01, 0.01, 0.01)):
@@ -178,9 +178,28 @@ class visualizationController():
         if publisher_topic:
             self.visualizePublisher = rospy.Publisher(publisher_topic, MarkerArray, latch=True, queue_size=1)
 
+        self.constraintPublisher = rospy.Publisher("/visual_constraint", Marker, queue_size=1, latch=True)
+        self.constraintSubscriber = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
+
+        self.baseVector = np.array([0,0,1])
+        self.planeVector = np.array([0,0,1])
+        self.constraint = None
         self.markers = MarkerList()
         self.currentPose = None
         self.goalExists = False
+        self.constraintExists = False
+    
+    def constraintCallback(self, msg):
+
+        self.constraint = MarkerData(pose2Array(msg), color=(1,1,0,0), size=(0.05,0.05,0.05))
+
+        message = self.constraint.get()
+        self.constraintExists = True
+
+        mat = euler_to_so3(self.constraint.pose[3:])
+        self.planeVector = mat @ self.baseVector
+
+        self.constraintPublisher.publish(message)
 
     def robotCallback(self, msg):
 
@@ -189,6 +208,9 @@ class visualizationController():
         self.markers.updateMarkers(self.currentPose)
         if self.goalExists:
             self.publishMarkers()
+        
+        if self.constraintExists:
+            self.updateConstraint(np.array(self.currentPose))
 
 
     def pathCallback(self, msg):
@@ -206,6 +228,24 @@ class visualizationController():
     def printData(self):
         print("Current pose: ", self.currentPose)
         print("Current path: ", self.markers.markerList)
+
+    def updateConstraint(self, pose):
+
+        """Update when axis aligned"""
+
+        if np.linalg.norm(np.cross(pose[3:], self.planeVector)) <= 0.001:
+
+            self.constraint.setColor((1,1,0,1))
+
+        else:
+
+            self.constraint.setColor((1,1,0,0))
+
+        msg = self.constraint.get()
+        self.constraintPublisher.publish(msg)            
+
+
+
 
 
 class Hitbox(MarkerData):
@@ -313,6 +353,7 @@ class HitboxGroup():
         self.bodyChain = []
         self.externalObjects = [] #This is yet to be implemented
         self.visualPublisher = rospy.Publisher(visual_pub_topic, MarkerArray, queue_size=1, latch=True)
+        
 
 
         self.init_(tool)
