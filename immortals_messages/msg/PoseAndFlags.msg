@@ -1,2 +1,3 @@
 Pose pose 
-bool plan 
+bool plan
+bool constraint 
