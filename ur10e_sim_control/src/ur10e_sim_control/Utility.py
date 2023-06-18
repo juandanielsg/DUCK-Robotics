@@ -464,7 +464,7 @@ class LightHitboxGroup():
         self.collisionPublisher.publish(msg)
 
 
-def getErrorVectors(pose,goal):
+def getErrorVectors(pose,goal,items=[True, True, True, True, True, True]):
 
     linearerror = goal[:3] - pose[:3]
 
@@ -488,7 +488,25 @@ def getErrorVectors(pose,goal):
     linearerror /= (linearNorm + 1e-09)
     trueEulError /= (angularNorm + 1e-09)
 
-    return [error, linearerror, trueEulError, positionRatio, eulerRatio]
+    return [error, linearerror*items[:3], trueEulError*items[3:], positionRatio, eulerRatio]
+
+
+def getErrorVec(pose, goal):
+
+    linearerror = goal[:3] - pose[:3]
+
+    w, x, y, z = get_quaternion_from_euler(goal[3],goal[4],goal[5])
+    finalQt = np.quaternion(w, x, y, z)
+    w, x, y, z = get_quaternion_from_euler(pose[3],pose[4],pose[5])
+    Qt = np.quaternion(w,x,y,z)
+
+    errorqt = finalQt * Qt.conjugate()
+
+    trueEulError = np.array(euler_from_quaternion(errorqt.w, errorqt.x, errorqt.y, errorqt.z))
+    #print(trueEulError)
+
+    return np.append(linearerror, trueEulError)
+
 
 def getCloserPoint(pose, linearVector, angularVector, ratio1, ratio2, thresh=0.5):
 
@@ -498,11 +516,27 @@ def getCloserPoint(pose, linearVector, angularVector, ratio1, ratio2, thresh=0.5
     pose_ = pose + np.append(linearIncrement, angularIncrement)
     return pose_
 
-def getError(pose,goal):
+def getError(pose,goal,scalar=True,distance=None):
 
-    error = np.array([(goal[i] - pose[i]) for i in range(3)])
+    #Example: given goal = rcm and pose = current_pose, can the error be computed in other ways?
 
-    
+    #Surely it can. Angularly it is precise this way, but linearly it is a bit messed up.
+
+    #Can both of the movements be made at the same time? Sure!
+
+    #Known data: distance from ee to rcm (scalar) and orientation of the vector. This can already parametrize the error vector.
+
+    #Sadly, the movement has to be first angular and then linear, I think (?)... Otherwise, we would need to normalize both of them (easy, right?)
+
+    #Hipothesis 1: both at the same time and add a distance number to the main pose vector.
+
+    if distance:
+
+        vector = np.array([(goal[i] - pose[i]) for i in range(3)])
+        goal -= (vector/np.linalg.norm(vector))*distance    
+
+    linearerror = np.array([(goal[i] - pose[i]) for i in range(3)])
+
     w, x, y, z = get_quaternion_from_euler(goal[3],goal[4],goal[5])
     finalQt = np.quaternion(w, x, y, z)
     w, x, y, z = get_quaternion_from_euler(pose[3],pose[4],pose[5])
@@ -511,11 +545,221 @@ def getError(pose,goal):
     errorqt = finalQt * Qt.conjugate()
     trueEulError = np.array(euler_from_quaternion(errorqt.w, errorqt.x, errorqt.y, errorqt.z))
 
-    error = np.linalg.norm(error) + np.linalg.norm(trueEulError)
+    error = np.linalg.norm(linearerror) + np.linalg.norm(trueEulError)
     
-    return error
+    if scalar:
+        return error
+
+    else:
+        return np.append(linearerror, trueEulError)
+
+def getInsertionPoint(rcm, rcmvector, length):
+
+    #Returns a XYZRP (not yaw, since it is not relevant) approach to the insertion point
+
+    position = rcm[:3] + rcmvector*length
+
+    w, x, y, z = get_quaternion_from_euler(rcm[3], rcm[4], rcm[5])
+    Qt = np.quaternion(w,x,y,z)
+
+    Qt = Qt.conjugate()
+    orientation = np.array(euler_from_quaternion(Qt.w, Qt.x, Qt.y, Qt.z))
+    
+    pose = np.append(position, orientation[:2])
+    return pose
 
 
 def pose2Array(pose):
 
     return np.array([pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw])
+
+
+
+
+#theta_end_effector = theta_tool_tip / L
+
+def getEEVelocity(ee, tool, tool_velocity):
+    """
+    Get the velocity needed at the end effector if given the tool tip position and tool velocity.
+
+    Args:
+        ee (np.array): end effector Homogeneous Transformation Matrix
+        tool (np.array): tool tip H matrix
+        tool_velocity (np.array): xyzrpy notation of the desired tool tip velocity
+    """
+
+    Linear_velocity = None
+    Angular_velocity = tool_velocity[3:]
+
+    return np.append(Linear_velocity, Angular_velocity)
+
+
+
+def getEEJacobian(Hbe, Jacobian):
+
+    """
+    Given the Jacobian for world coordinates and the H matrix for the ee frame in relationship with the world frame,
+    Returns the Jacobian for the end effector frame speeds.
+    """
+
+    return Adjoint(TransInv(Hbe)) @ Jacobian
+
+def getVelocityRCM(rcm, tool, ee, tool_velocity):
+    """Get the end effector velocity in world frame if we have a RCM 
+
+    Args:
+        rcm (np.array): pose of the RCM in world frame
+        tool (np.array): pose of the tool in world frame
+        ee (np.array): pose of the end effector in world frame
+        tool_velocity (np.array): 6-element array of xyzrpy velocity for the tool
+    """
+
+    #TODO Tomorrow: check if it can be all made with ee reference frames instead, and keep working on it for now.
+    #This should fix my problems. It is 99% done right now.
+
+
+    H_EE = build_se3_transform(ee) #H_EE H_EE - Michael Jackson, probably
+    #H_RCM = build_se3_transform(rcm)
+    #H_T = build_se3_transform(tool)
+
+    #The article suggests using EE frame as reference, in which case: 
+    H_eRCM = build_se3_transform(getError(ee,rcm,False))
+    H_eT = build_se3_transform(getError(ee, tool, False))
+
+
+    #Change this. I need the vector difference in the world reference frame.
+    x_ET = (H_eT[:3,3]).flatten()
+    x_TR = (-H_eT[:3,3] + H_eRCM[:3,3]).flatten()
+
+    E_z = H_EE[:3,2].flatten()
+
+    v_tangent = (np.eye(3) - E_z @ E_z.T) @ tool_velocity[:3]
+
+    e_ω = np.cross(v_tangent, E_z)/np.linalg.norm(x_TR)
+
+    e_v = tool_velocity[:3] - np.cross(e_ω, x_ET)
+
+    return np.append(e_v, e_ω) 
+
+def getH_bc(pose1:np.array, pose2:np.array, aligned:bool=False) -> np.matrix:
+
+    """Assuming vector1 (B) and vector2 (C) belong to the same reference frame A, gives H_BC as seen from A.
+    If aligned, returns the translation vector inserted in a H matrix instead."""
+
+    #As reference, given Hab and Hac, computing Hbc as seen from A is as simple as:
+    #Hbc = inv(Hab) @ Hac 
+
+    if aligned:
+
+        t = pose2[:3] - pose1[:3]
+        H = np.array([[1,0,0,t[0]],[0,1,0,t[1]],[0,0,1,t[2]],[0,0,0,1]])
+        return H
+    
+    else:
+
+        H_ab = build_se3_transform(pose1)
+        H_ac = build_se3_transform(pose2)
+
+        H_ba = TransInv(H_ab)
+
+        return H_ba @ H_ac
+
+def changeVelocityFrame(velocity, H):
+
+    """Changes velocity vectors represented in xyzrpy format to match the desired frame.
+    
+    Example: if H = Hab and velocity is expressed in frame A, this returns velocity expressed in frame B."""
+
+    return Adjoint(H) @ velocity
+
+def Adjoint(T):
+    """Computes the adjoint representation of a homogeneous transformation
+    matrix
+
+    :param T: A homogeneous transformation matrix
+    :return: The 6x6 adjoint representation [AdT] of T
+
+    Example Input:
+        T = np.array([[1, 0,  0, 0],
+                      [0, 0, -1, 0],
+                      [0, 1,  0, 3],
+                      [0, 0,  0, 1]])
+    Output:
+        np.array([[1, 0,  0, 0, 0,  0],
+                  [0, 0, -1, 0, 0,  0],
+                  [0, 1,  0, 0, 0,  0],
+                  [0, 0,  3, 1, 0,  0],
+                  [3, 0,  0, 0, 0, -1],
+                  [0, 0,  0, 0, 1,  0]])
+    """
+    R, p = TransToRp(T)
+    return np.r_[np.c_[R, np.zeros((3, 3))],
+                 np.c_[np.dot(VecToso3(p), R), R]]
+
+def VecToso3(omg):
+    """Converts a 3-vector to an so(3) representation
+
+    :param omg: A 3-vector
+    :return: The skew symmetric representation of omg
+
+    Example Input:
+        omg = np.array([1, 2, 3])
+    Output:
+        np.array([[ 0, -3,  2],
+                  [ 3,  0, -1],
+                  [-2,  1,  0]])
+    """
+    return np.array([[0,      -omg[2],  omg[1]],
+                     [omg[2],       0, -omg[0]],
+                     [-omg[1], omg[0],       0]])
+
+
+
+def calculate_velocity(starting_pose_rotating, starting_pose_target, vel_center, w_center):
+    # Convert poses to numpy arrays
+    if np.linalg.norm(w_center)==0:
+        return vel_center
+    pos_rotating = np.array(starting_pose_rotating)
+    pos_target = np.array(starting_pose_target)
+
+    # Calculate vector projection
+    vecProj = pos_target - np.dot(pos_target, w_center) / np.dot(w_center, w_center) * w_center
+
+    # Calculate the cross product w_center x vecProj
+    cross_product = np.cross(w_center, vecProj)
+
+    # Calculate the velocity using the formula vel = vel_center - w_center x vecProj
+    velocity = vel_center - cross_product
+
+    return velocity
+
+def rotation_matrix_from_vectors(vec1, vec2):
+    """ Find the rotation matrix that aligns vec1 to vec2
+    :param vec1: A 3d "source" vector
+    :param vec2: A 3d "destination" vector
+    :return mat: A transform matrix (3x3) which when applied to vec1, aligns it with vec2.
+    """
+    a, b = (vec1 / np.linalg.norm(vec1)).reshape(3), (vec2 / np.linalg.norm(vec2)).reshape(3)
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    s = np.linalg.norm(v)
+    kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
+    return rotation_matrix
+
+
+def euler_from_vectors(vec1, vec2):
+
+    """Returns the rpy angles of vec2 given the reference frame Z oriented vector V1. Base would be (0,0,1)
+    """
+
+    R = rotation_matrix_from_vectors(vec1, vec2)
+    return so3_to_euler(R)
+
+
+
+#To get the next ee point by using the velocity of the ee and having an rcm constraint.
+
+#We get the director vector from the rcm and the vector from (tool-ee), which points towards the tool and is therefore the correct vector
+
+#Then, we use the formulas for 
