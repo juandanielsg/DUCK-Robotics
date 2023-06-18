@@ -14,7 +14,7 @@ import datetime
 import quaternion
 import pathlib
 
-from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain, build_se3_transform, list2Pose, pose2Array, getErrorVectors
+from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain, build_se3_transform, list2Pose, pose2Array, getErrorVectors, euler_to_so3, getVelocityRCM, calculate_velocity, euler_from_vectors, getH_bc, getErrorVec
 #<node name="CartesianController" pkg="ur10e_sim_control" type="CartControl_v4.py" output="screen" launch-prefix="gnome-terminal --command"/>
 #TODO NOW
 #Improve code - Duplicated rate.
@@ -29,17 +29,18 @@ class UR10e():
                  'an', 'v', 'clamp_speed_1', 'clamp_speed_2', 'clamp_speed_3', 'clamp_speed_4', 'clamp_angle', 'KinChain', 'tool', 'EEHomMat', 'EErotation', 'EEtranslation',
                  'pose1', 'pose2', 'pose3', 'pose4', 'pose5', 'pose6', 'toolpose', 'J', 'J_inv', 'jointSpeed', 'Kp', 'Ki', 'Kd', 'dt', 'P', 'I', 'D',
                 'error', 'prev_e', 'sum_e', 'logfilename', 'log', 'qt', 'interpolations', 'num_error', 'goal', 'goalSpeed', 'goalqt', 'tmpGoal', 'tmpIndex', 'maxIndex',
-                'receivedGoal', 'planning', 'solvingIK', #Flags
-                 'goal_angles', 'IKPub', 'IKSub', 'controller', 'controllerFunc', 'previousPose', 'currentEstimatePose'
+                'receivedGoal', 'planning', 'solvingIK', 'receivedConstraint', 'useConstraint', 'controlTool', #Flags
+                 'goal_angles', 'IKPub', 'IKSub', 'controller', 'controllerFunc', 'previousPose', 'currentEstimatePose', 'currentEToolPose',
+                 'constraint', 'constraintVec', 'constraintSub', 'constraintPub', 'baseVec','currentCartesianSpeed','rcmpose'
                 }
 
     def __init__(self, logfile=None, sim=True, tool='none', controller='cartP'):
         
-        # Do something on shutdown
-        rospy.on_shutdown(self.onShutdown)
+        # Constant
+        self.baseVec = np.array([0,0,1])
 
         # K value
-        self.K = 1
+        self.K = 0.01
         
         #Denavit-Hartenberg parameters - Not modifiable.
         self.d = [0.1807, 0, 0, 0.17415, 0.11985, 0.11655]
@@ -95,6 +96,7 @@ class UR10e():
         self.pose5 = None
         self.pose6 = None
         self.toolpose = None
+        self.rcmpose = None
 
         #Jacobian
         self.J = np.array([[1,0],[1,0]])
@@ -103,10 +105,17 @@ class UR10e():
         #Current Speed
         self.jointSpeed = [None]*6
 
-        #PID Params
-        self.Kp = 1
-        self.Ki = 0.01
-        self.Kd = 0.1
+        #PID Params - Here is something that I want to fix.
+
+        #Before -> 1 less 0 on each one. Perhaps even 2
+
+        #self.Kp = 0.0001
+        #self.Ki = 0.00001
+        #self.Kd = 0.000003
+
+        self.Kp = 0.01
+        self.Ki = 0.0001
+        self.Kd = 0.00005
 
         self.dt = 0.001
 
@@ -115,11 +124,13 @@ class UR10e():
         self.D = None
 
         self.error = None
-        self.prev_e = 0
-        self.sum_e = 0
+        self.prev_e = None
+        self.sum_e = None
 
         self.previousPose = None
         self.currentEstimatePose = None
+        self.currentEToolPose = None
+        self.currentCartesianSpeed = None
 
         #Generate a new logfile to collect data - WIP
         if logfile is not None:
@@ -150,11 +161,19 @@ class UR10e():
         #Flags
         self.receivedGoal = False
         self.planning = False
+        self.receivedConstraint = False
+        self.solvingIK = False
+        self.useConstraint = False
+        self.controlTool = False
 
         #Setting up the controller to use
         self.controller = controller
         self.controllerFunc = None
         self.setController(self.controller)
+
+        #Setting up the constraint
+        self.constraint = None
+        self.constraintVec = None
 
         #ROS publishers/subscribers
         self.goalSub = rospy.Subscriber("/goal_pose", PoseAndFlags, self.goalcallback, queue_size=1)
@@ -164,6 +183,7 @@ class UR10e():
         self.posePub = rospy.Publisher("/current_pose", Pose, queue_size=1)
         self.posesPub = rospy.Publisher("/current_poses", PoseArray, queue_size=1)
         self.pathPub = rospy.Publisher("/path_plan",Path,latch=True, queue_size=1)
+        self.constraintSub = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
 
         #Planning ROS agents
         self.planRequester = rospy.Publisher("/path_requests", PathRequest, latch=True, queue_size=1)
@@ -172,6 +192,9 @@ class UR10e():
         #IK ROS agents
         self.IKPub = rospy.Publisher("/IK_requests", IKRequest, queue_size=1)
         self.IKSub = rospy.Subscriber("/IK_replies", IKReply, self.IKCallback, queue_size=1)
+
+        # Do something oshutdownn 
+        rospy.on_shutdown(self.onShutdown)
 
     def attachTool(self, toolname):
         
@@ -204,7 +227,7 @@ class UR10e():
 
         funcs = {"cartP": self.cartesianPoseControl, "cartV": self.cartesianVelocityControl, "jointP": self.jointSpacePoseControl, "jointV": self.jointSpaceVelocityControl}
         self.controllerFunc = funcs[key]
-
+        
     def setTime(self, time):
         self.dt = time
 
@@ -214,7 +237,7 @@ class UR10e():
 
         self.log = open(self.logfilename, "w")
 
-    def pose2String(self, pose) -> str:
+    def array2String(self, pose) -> str:
         """Converts a pose (6 value array) into a string. This is a method called by logWrite() only, and it has no other use.
 
         Args:
@@ -224,13 +247,13 @@ class UR10e():
             string: a string in the format x/y/z/roll/pitch/yaw with a line jump at the end.
         """
         
-        return "/".join([str(coord) for coord in pose]) + "\n"
+        return "/".join([str(coord) for coord in pose]) + "\t" if pose is not None else ''
     
     def logWrite(self) -> None:
         
-        data = [self.pose2String(self.pose1), self.pose2String(self.pose2), self.pose2String(self.pose3), self.pose2String(self.pose4), self.pose2String(self.pose5), self.pose2String(self.pose6), self.pose2String(self.toolpose), "\n"]
+        data = self.array2String(self.toolpose) + self.array2String(self.pose6) + self.array2String(self.P) + self.array2String(self.I) + self.array2String(self.D) + self.array2String(self.jointSpeed) + str(self.dt) + '\n'
 
-        self.log.writelines(data)
+        self.log.write(data)
 
     def printPose(self, time) -> None:
         print("~ Average iteration time ~")
@@ -266,6 +289,14 @@ class UR10e():
         print("wrist_3_joint: ", self.an6, "\t",self.v6)
         print()
 
+        print("~ Flags ~")
+        print("Goal received: ", self.receivedGoal)
+        print("Planning path: ", self.planning)
+        print("Constraint received: ", self.receivedConstraint)
+        print("Solving IK: ", self.solvingIK)
+        print("Using constraint for movement: ", self.useConstraint)
+        print()
+
         if self.J_inv is not None:
             print("~ Jacobian Matrix ~")
             print("Det(J): ", np.linalg.det(self.J))
@@ -292,6 +323,12 @@ class UR10e():
             print("D: " + str(self.D))
             if self.num_error is not None:
                 print("Error (scalar): ", self.num_error)
+            
+            print("Current EE Pose: ", *np.round(self.pose6,3))
+            print("Expected pose: ", *np.round(self.currentEstimatePose,3))
+
+            print("Current tooltip Pose: ", *np.round(self.toolpose,3))
+            print("Expected tootip Pose: ", *np.round(self.currentEToolPose,3))
     
     def printPoses(self):
 
@@ -318,9 +355,14 @@ class UR10e():
 
         data = [msg.pose.x, msg.pose.y, msg.pose.z, msg.pose.roll, msg.pose.pitch, msg.pose.yaw]
         self.receivedGoal = True
-        print(data)
+        self.useConstraint = msg.constraint
+
         if self.controller == "cartP" or self.controller == "jointP":
-            self.setGoal(data, plan=msg.plan, interp=True)
+            if msg.constraint:
+                self.setGoal(data, plan=False, interp=False)
+            
+            else:
+                self.setGoal(data, plan=msg.plan, interp=True)
         
         else:
             self.goalSpeed = msg.data
@@ -328,7 +370,11 @@ class UR10e():
     def speedCallback(self,msg):
 
         speed = [msg.pose.x, msg.pose.y, msg.pose.z, msg.pose.roll, msg.pose.pitch, msg.pose.yaw]
-        self.goalSpeed = speed
+        self.goalSpeed = np.array(speed)
+        self.useConstraint = msg.constraint
+        self.currentEstimatePose, self.currentEToolPose = None, None
+        self.sum_e = None
+        self.prev_e = None
     
     def planCallback(self, msg):
 
@@ -349,6 +395,13 @@ class UR10e():
         self.goal_angles = np.array(msg.angles)
         self.solvingIK = False
 
+    def constraintCallback(self, msg):
+
+        self.constraint = pose2Array(msg)
+        self.receivedConstraint = True
+        mat = euler_to_so3(self.constraint[3:])
+        self.constraintVec = mat @ self.baseVec
+
     def quaternionInterpolation(self, steps=10):
 
         #WIP - This function is the holy grail of this project 
@@ -357,7 +410,7 @@ class UR10e():
 
         #Lord have mercy
 
-        w1, x1, y1, z1 = get_quaternion_from_euler(self.toolpose[3], self.toolpose[4], self.toolpose[5])
+        w1, x1, y1, z1 = get_quaternion_from_euler(self.pose6[3], self.pose6[4], self.pose6[5])
         w2, x2, y2, z2 = get_quaternion_from_euler(self.goal[3], self.goal[4], self.goal[5])
 
         quat_start = np.quaternion(w1, x1, y1, z1)
@@ -385,7 +438,7 @@ class UR10e():
         #Cartesian space is linear, so we can just draw a linear coordinate approach to this
         #We are using single quaternions
 
-        initial_position = np.array(self.toolpose[:3])
+        initial_position = np.array(self.pose6[:3])
         final_position = np.array(self.goal[:3])
 
         vec = (final_position - initial_position)/steps
@@ -457,7 +510,7 @@ class UR10e():
         R = atan2(H[2,1]/cos(P), H[2,2]/cos(P))
         Y = atan2(H[1,0]/cos(P), H[0,0]/cos(P))
 
-        pose = [H[0,3], H[1,3], H[2,3], R, P, Y]
+        pose = np.array([H[0,3], H[1,3], H[2,3], R, P, Y])
         return pose
 
     def FK(self):
@@ -474,12 +527,19 @@ class UR10e():
             self.pose6 = self.getPose(FKMatrixList[5])
             self.toolpose = self.getPose(FKMatrixList[6])
 
-            H = FKMatrixList[6]
+            H = FKMatrixList[5]
 
-            #print(H)
+            if self.controlTool:
+
+                H = FKMatrixList[6]
+                
             self.EErotation = H[0:3,0:3]
             self.EEtranslation = H[0:3,3].flatten()
             self.EEHomMat = H
+
+            if self.useConstraint and False:
+
+                self.FK_constraint()
 
             w, x, y, z = get_quaternion_from_euler(self.pose6[3],self.pose6[4],self.pose6[5])
             
@@ -492,10 +552,35 @@ class UR10e():
             msg2.element_poses = [list2Pose(self.pose1), list2Pose(self.pose2), list2Pose(self.pose3), list2Pose(self.pose4), list2Pose(self.pose5), list2Pose(self.pose6), msg]
             self.posesPub.publish(msg2)
 
+            
+
         else:
 
             self.pose6 = [None]*6
     
+    def FK_constraint(self):
+
+        """Computes forward kinematics considering that we add a virtual link between the end effector and the constraint.
+        """
+
+        #3 Principles
+
+        #1. The Jacobian would be computed from the rcm pose rather than our own.
+        #2. We assume the rcm pose to be aligned to the ee pose (Technically right). The rcm for us is a point in space.
+        
+        #Therefore...
+
+        #NONONONONONONO, will have to check this one later.
+
+        H = getH_bc(self.pose6, self.constraint, aligned=True)
+        self.EEHomMat = self.EEHomMat @ H
+        self.EEtranslation = self.EEHomMat[0:3,3].flatten()
+        self.rcmpose = self.getPose(self.EEHomMat)
+
+        #Note: after enabling this, the new Jacobian will be a RCM jacobian (theoretically???)
+
+        pass
+
     def calculateJ(self, inv=True):
 
         lmbda = 0.1
@@ -537,7 +622,8 @@ class UR10e():
         if inv:
             if abs(np.linalg.det(J)) <= 0.05:
 
-                self.J_inv = np.dot(J.T, np.linalg.inv(np.dot(J, J.T) + lmbda**2 * np.eye(J.shape[0])))
+                #self.J_inv = np.dot(J.T, np.linalg.inv(np.dot(J, J.T) + lmbda**2 * np.eye(J.shape[0])))
+                self.J_inv = np.linalg.pinv(J)
             
             else:
 
@@ -546,23 +632,6 @@ class UR10e():
         pass
 
     def calculateJointSpeed(self, desired_end_speed):
-
-        if self.controller == "cartV":
-
-            #Step 1: convert tooltip speed to end effector speed by the formula:
-
-            #evt = eve + eω ∧ eET
-
-            #where evt = velocity in tool (we know this one)
-
-            #eve = end effector linear velocity (we need this one)
-
-            #ew = end effector angular velocity = tool angular velocity
-
-            #^ = cross product
-            
-            #eET = self.KinChain.
-            pass
 
         if self.J_inv is not None:
             desired_end_speed = np.array(desired_end_speed).reshape((-1,1))
@@ -577,17 +646,19 @@ class UR10e():
     def publishJointSpeed(self, jointspeed):
         
         msg = Float64MultiArray()
-        #Use a controller to reach desired speed in a certain time i.e. K iterations
-        #Achieved by a proportional + derivative controller - just PD
-        speed = [self.v[i] + ((jointspeed[i] - self.v[i])/self.K) for i in range(0,6)]
+        #Use a low pass filter to solve convergence issues.
+        speed = jointspeed
 
         #speed = [0,-0.1,0,0,0,0]
         self.jointSpeed = speed
-        self.clampSpeed()   
+        #self.clampSpeed()   
         msg.data = self.jointSpeed
         self.velPub.publish(msg)
     
     def setGoal(self,goal,plan=False,interp=False):
+
+        self.sum_e = None
+        self.prev_e = None
 
         msg = Path()
 
@@ -641,7 +712,6 @@ class UR10e():
             self.pathPub.publish(msg)
             self.solveIK(goal)
             
-
     def solveIK(self, goal):
 
         self.maxIndex = 0
@@ -671,15 +741,22 @@ class UR10e():
         self.planRequester.publish(msg)
     
     def getError(self,goal,scalar=False):
-        #print(goal)
-        goalMat = build_se3_transform(goal)
-        #print(goalMat)
-        #print(self.KinChain.invtool)
-        goalMat = goalMat @ self.KinChain.invtool
 
-        goal = self.getPose(goalMat)
+        if self.controlTool:
+            
+            """goalMat = build_se3_transform(goal)
+            #print(goalMat)
+            #print(self.KinChain.invtool)
+            goalMat = goalMat @ self.KinChain.invtool
 
-        error = np.array([(goal[i] - self.pose6[i]) for i in range(3)])
+            #If constraint, goal should be measured on the tool tip, not on the ee
+            goal = self.getPose(goalMat)"""
+            
+            error = np.array([(goal[i] - self.toolpose[i]) for i in range(3)])
+
+        else:
+
+            error = np.array([(goal[i] - self.pose6[i]) for i in range(3)])
 
         w, x, y, z = get_quaternion_from_euler(goal[3],goal[4],goal[5])
         finalQt = np.quaternion(w, x, y, z)
@@ -728,13 +805,25 @@ class UR10e():
 
         #Now we have to estimate the error on the EE, not on the tool
 
-        if all([(abs(self.goal[i] - self.toolpose[i])< 0.001) for i in range(6)]):
+        if self.useConstraint:
+            error_range = 3
+        
+        else:
+            error_range = 6
+
+        if all([(abs(self.goal[i] - self.toolpose[i])< 0.001) for i in range(error_range)]) and not self.useConstraint:
 
             msg.data = [0,0,0,0,0,0]
             self.velPub.publish(msg)
             #print("Reached goal with precision > 0.01")
 
         else:
+
+            #IDEA: if using constraint, we should use v_tool as seen from ee: error(ee, goal) - error (ee, toolnow) for linear
+
+            #Given T = tool frame
+
+            
 
             #TODO: Be able to calculate dt after each and every iteration / done?
             #PID Control
@@ -746,7 +835,16 @@ class UR10e():
 
             #This is not as accurate as I thought, so let's remake it
 
-            error = self.getError(goal,scalar=False)
+            #If I have H_bee and H_btool and H_brcm
+            #And I want H_ee_tool and H_ee_rcm and H_rcm_tool
+
+            if self.receivedConstraint and self.useConstraint:
+                error = self.getError(goal,scalar=False)[:3]
+                error = getVelocityRCM(self.constraint, self.toolpose, self.pose6, error)
+            
+            else:
+                error = self.getError(goal,scalar=False)
+
             self.error = error
 
             #Let's normalize linear and angular speed separatedly.
@@ -755,6 +853,9 @@ class UR10e():
             #speed = np.append(lin_speed, ang_speed)
 
             #Calculate P error
+            #P = error
+
+            #Assume Kp = 1 in this case. Otherwise, uncomment:
             P = error * self.Kp
 
             #Calculate I error
@@ -774,38 +875,74 @@ class UR10e():
             else:
                 D = [0,0,0,0,0,0]
             
+            
+            
             self.prev_e = error
             self.P, self.I, self.D = P, I, D
             
             endspeed = (P+I+D).tolist()
+            if self.receivedConstraint and self.useConstraint:
+                endspeed = getVelocityRCM(self.constraint, self.toolpose, self.pose6, endspeed)
             jointspeed = self.calculateJointSpeed(endspeed)
             self.publishJointSpeed(jointspeed)
 
+    def reachPose_rcm(self):
+
+        #The same but for RCM constraints
+
+        pass
+
     def reachSpeed(self):
 
+        #IT WORKS NOW :D
+
+        #Now add the vector for the RCM, if you dare
+
+
         desired_end_speed = np.array(self.goalSpeed)
-        eET = self.KinChain.tool
         
-        vel = desired_end_speed[:3] - np.cross(np.array(desired_end_speed[3:]), eET[0:3,3])
+        eTE = self.KinChain.invtool
+        
+        #vel = desired_end_speed[:3] - np.cross(np.array(desired_end_speed[3:]), eET[0:3,3])
 
-        eBE = self.KinChain.ForwardKinematics()[-1]
+        #V_end_effector = V_tool + omega_tool × (R * M)
 
-        vel = desired_end_speed[:3] - np.cross(np.array(desired_end_speed[3:]), eBE[0:3,3])
- 
-        desired_end_speed = np.append(vel, np.array([desired_end_speed[3:]]))
-        print(desired_end_speed)
+        #Option 2: turn goalSpeed into goalSpeed from ee perspective, then run all calculations
+        #and turn the result back to goal speed. This could solve my problems or prove my system to be wrong. 
 
-        if self.previousPose is None:
+        #True problem. We are not keeping in mind the current desired pose of the TOOL when running all these calculations.
+        #Therefore, they are all wrong.
 
-            self.previousPose = self.pose6
+        if self.currentEstimatePose is None:
+
             self.currentEstimatePose = self.pose6
-            self.prev_e = np.array([0,0,0,0,0,0])
+            self.currentEToolPose = self.toolpose
 
-        
-        _, linear, angular, _, _ = getErrorVectors(np.array(self.pose6),np.array(self.previousPose))
-        compensation = np.append(linear, angular)
+        #vel = calculate_velocity(self.currentEToolPose[:3], self.currentEstimatePose[:3],self.goalSpeed[:3],self.goalSpeed[3:])
 
-        error = compensation
+        #The rotation speed is inverse in the tool tip to the one on the end effector.
+        #np.linalg.norm(eBT[0:3,3]) This was dividing -1 until I realized that it made no sense whatsoever.
+        #desired_end_speed = np.append(vel, np.array([desired_end_speed[3:]]))
+        #print(desired_end_speed)
+
+        #self.desired_end_speed = getVelocityRCM(self.constraint, self.toolpose, self.pose6, self.goalSpeed)
+    
+        #My vector metric is the difference in pose between the current pose of the ee and the desired one.
+        #I should be using a different metric perhaps.
+
+        #Scrapped all previous effort as it was highly inefficient. Now lets see how can I get the desired end speed
+
+        #How can the error be applied. IE: add the error to the current desired ee speed.
+
+        #Formula: given error as a velocity vector in the form of (desiredpose-pose)/dt
+
+        #P = Velocity
+        #I = Distance
+        #D = Acceleration
+
+
+        _, linear, angular, _, _ = getErrorVectors(np.array(self.pose6),np.array(self.currentEstimatePose))
+        error = np.append(linear, angular)/self.dt
         self.error = error
 
         if self.sum_e is not None:
@@ -814,16 +951,26 @@ class UR10e():
         else:
             self.sum_e = error * self.dt
         
+        if self.prev_e is None:
+            self.prev_e = self.error
+        
         P = error * self.Kp
         I = self.sum_e * self.Ki
-        #I = np.array([0,0,0,0,0,0])
         D = (((error - self.prev_e)/self.dt) * self.Kd)
 
         self.P, self.I, self.D = P, I, D
 
-        self.previousPose = self.previousPose + desired_end_speed*self.dt
+        
+        self.currentEToolPose = self.currentEToolPose + self.goalSpeed * self.dt
+        #self.currentEstimatePose = self.currentEstimatePose + desired_end_speed * self.dt
+        self.currentEstimatePose = self.getPose(build_se3_transform(self.currentEToolPose) @ eTE)
 
-        desired_end_speed = P + I + D 
+        #This fixes the position of the new point to the correct point (0.5m apart in this case)
+        position_dif = self.currentEToolPose[:3] - self.currentEstimatePose[:3]
+        normalized_vector = position_dif / np.linalg.norm(position_dif)
+        self.currentEstimatePose = self.currentEToolPose - 0.5 * np.append(normalized_vector, np.zeros(3))
+
+        desired_end_speed = P + I + D
 
         self.prev_e = error
 
@@ -831,10 +978,126 @@ class UR10e():
         self.clampSpeed()
         self.publishJointSpeed(self.jointSpeed)
 
+    def reachRCMSpeed(self):
+
+        """Does the same but with RCM. Requires the RCM to be in the tool.
+        """
+
+        #For the RCM, we can control position, not orientation. Therefore we will have the tooltip be oriented by a calculation.
+
+        #Principle: given that we have a small enough time interval dt, we can approximate any trajectory as a series of linear speeds.
+        
+        if self.currentEstimatePose is None:
+            self.previousPose = self.pose6
+            self.currentEstimatePose = self.pose6
+            self.currentEToolPose = self.toolpose
+
+        error = getErrorVec(np.array(self.pose6),np.array(self.currentEstimatePose)) / self.dt
+        
+        self.error = error
+
+        #desired_end_speed = [(self.goalSpeed[i]*self.K + (1-self.K) * (self.pose6[i]-self.previousPose[i])/self.dt) for i in range(0,6)]
+        desired_end_speed = self.goalSpeed
+
+        if self.sum_e is not None:
+            self.sum_e += (error * self.dt)
+            
+        else:
+            self.sum_e = error * self.dt
+        
+        if self.prev_e is None:
+            self.prev_e = self.error
+        
+        P = error * self.Kp
+        I = self.sum_e * self.Ki
+        D = (((error - self.prev_e)/self.dt) * self.Kd)
+
+        self.P, self.I, self.D = P, I, D
+
+        #Let's get creative with this.
+
+        self.currentEToolPose = self.currentEToolPose + self.goalSpeed * self.dt
+        #self.currentEstimatePose = self.currentEstimatePose + desired_end_speed * self.dt
+
+        #This fixes the position of the new point to the correct point (0.5m apart in this case)
+        position_dif = self.currentEToolPose[:3] - self.constraint[:3]
+        self.currentEToolPose = np.append(self.currentEToolPose[:3], euler_from_vectors(self.baseVec, position_dif))
+        #print(self.currentEToolPose)
+        normalized_vector = position_dif / np.linalg.norm(position_dif)
+        self.currentEstimatePose = self.currentEToolPose - 0.5 * np.append(normalized_vector, np.zeros(3))
+
+        desired_end_speed = P + I + D
+
+        self.prev_e = error
+
+        self.calculateJointSpeed(desired_end_speed)
+        #self.clampSpeed()
+        self.publishJointSpeed(self.jointSpeed)
+
+    
+    def reachRCMSpeed_method2(self):
+
+        """Does the same but with RCM. Requires the RCM to be in the tool.
+        """
+
+        #For the RCM, we can control position, not orientation. Therefore we will have the tooltip be oriented by a calculation.
+
+        #Now we want to control rotation at the RCM to control the next point.
+
+        #Principle: We can control the tooltip with 2 rotations in the RCM and a translation along its own axis
+        
+        if self.currentEstimatePose is None:
+            self.previousPose = self.rcmpose
+            self.currentEstimatePose = self.rcmpose
+            self.currentEToolPose = self.toolpose
+
+        error = getErrorVec(np.array(self.rcmpose),np.array(self.currentEstimatePose)) / self.dt
+        
+        self.error = error
+
+        #desired_end_speed = [(self.goalSpeed[i]*self.K + (1-self.K) * (self.pose6[i]-self.previousPose[i])/self.dt) for i in range(0,6)]
+        desired_end_speed = self.goalSpeed
+
+        if self.sum_e is not None:
+            self.sum_e += (error * self.dt)
+            
+        else:
+            self.sum_e = error * self.dt
+        
+        if self.prev_e is None:
+            self.prev_e = self.error
+        
+        P = error * self.Kp
+        I = self.sum_e * self.Ki
+        D = (((error - self.prev_e)/self.dt) * self.Kd)
+
+        self.P, self.I, self.D = P, I, D
+
+        #Let's get creative with this.
+
+        self.currentEToolPose = self.currentEToolPose + self.goalSpeed * self.dt
+        #self.currentEstimatePose = self.currentEstimatePose + desired_end_speed * self.dt
+
+        #This fixes the position of the new point to the correct point (0.5m apart in this case)
+        position_dif = self.currentEToolPose[:3] - self.constraint[:3]
+        self.currentEToolPose = np.append(self.currentEToolPose[:3], euler_from_vectors(self.baseVec, position_dif))
+        #print(self.currentEToolPose)
+        normalized_vector = position_dif / np.linalg.norm(position_dif)
+        self.currentEstimatePose = self.currentEToolPose - 0.5 * np.append(normalized_vector, np.zeros(3))
+
+        desired_end_speed = P + I + D
+
+        self.prev_e = error
+
+        self.calculateJointSpeed(desired_end_speed)
+        #self.clampSpeed()
+        self.publishJointSpeed(self.jointSpeed)
+
+
     def clampSpeed(self):
 
-        if self.controller == "cartP":
-            self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_3, self.clamp_speed_4)
+        if self.controller == "cartV":
+            pass
         
         else:
             self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_3, self.clamp_speed_4)
@@ -859,6 +1122,7 @@ class UR10e():
 
         if self.tmpGoal is not None:
             self.reachPose()
+            self.logWrite()
 
     def cartesianVelocityControl(self):
 
@@ -869,7 +1133,13 @@ class UR10e():
         self.calculateJ()
 
         if self.goalSpeed is not None:
-            self.reachSpeed()
+            if self.useConstraint:
+                self.reachRCMSpeed()
+            
+            else:
+                self.reachSpeed()
+            
+            self.logWrite()
 
     def jointSpacePoseControl(self):
 
@@ -920,12 +1190,11 @@ class UR10e():
 
                 #STEP 4: Publish the joint speeds
                 self.publishJointSpeed(self.jointSpeed)
+                self.logWrite()
 
     def jointSpaceVelocityControl(self):
 
         pass
-
-
 
 def main():
     now = datetime.datetime.now()
@@ -941,10 +1210,10 @@ def main():
     nonzero = 0.001
 
     #robot = UR10e(logfile=None, sim=True, tool="cylinder1")
-    robot = UR10e(logfile=None, sim=True, tool=tool, controller=controller)
+    robot = UR10e(logfile=logpath, sim=True, tool=tool, controller=controller)
     cnt = 0
-    ref_rate = 1000
-    save_rate = 10
+    ref_rate = 100
+    save_rate = 1
     time1 = time.time()
     time2 = time.time()
 
@@ -955,8 +1224,8 @@ def main():
             robot.controllerFunc()
             
             """if cnt % save_rate == 0:
-                robot.logWrite()
-                pass"""
+                robot.logWrite()"""
+            
         
         cnt += 1
         
@@ -974,9 +1243,6 @@ def main():
             #robot.printDebug(flag="Pose")
             time1 = time.time()
             pass
-
-    
-
 
 if __name__ == "__main__":
     main()
