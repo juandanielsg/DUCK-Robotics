@@ -225,7 +225,7 @@ class UR10e():
     
     def setController(self, key) -> None:
 
-        funcs = {"cartP": self.cartesianPoseControl, "cartV": self.cartesianVelocityControl, "jointP": self.jointSpacePoseControl, "jointV": self.jointSpaceVelocityControl}
+        funcs = {"cartP": self.cartesianPoseControl, "cartV": self.cartesianVelocityControl, "jointP": self.jointSpacePoseControl, "jointV": self.jointSpaceVelocityControl, "PureCartV": self.cartesianVelocityPureControl}
         self.controllerFunc = funcs[key]
         
     def setTime(self, time):
@@ -978,6 +978,39 @@ class UR10e():
         self.clampSpeed()
         self.publishJointSpeed(self.jointSpeed)
 
+
+    def speedPIDControl(self):
+
+        desired_speed = self.goalSpeed
+
+        self.calculateJointSpeed(desired_speed)
+
+        error = np.array(self.jointSpeed) - np.array(self.v)
+
+        self.error = error
+
+        if self.sum_e is not None:
+            self.sum_e += (error * self.dt)
+            
+        else:
+            self.sum_e = error * self.dt
+        
+        if self.prev_e is None:
+            self.prev_e = self.error
+        
+        P = error * self.Kp
+        I = self.sum_e * self.Ki
+        D = (((error - self.prev_e)/self.dt) * self.Kd)
+
+        self.P, self.I, self.D = P, I, D
+
+        self.publishJointSpeed(np.array(self.v) + (P + I + D))
+
+
+
+
+
+
     def reachRCMSpeed(self):
 
         """Does the same but with RCM. Requires the RCM to be in the tool.
@@ -1140,6 +1173,19 @@ class UR10e():
                 self.reachSpeed()
             
             self.logWrite()
+
+        
+    def cartesianVelocityPureControl(self):
+
+        self.calcEveryH()
+        self.FK()
+        self.calculateJ()
+
+        if self.goalSpeed is not None:
+            
+            self.speedPIDControl()
+            self.logWrite()
+
 
     def jointSpacePoseControl(self):
 
