@@ -19,3 +19,8 @@ WIP (Functionality):
 - Add self-collision avoidance. [DONE]
 - Add manipulability maximizing path planning.
 - Add KDL support.
+
+
+
+FOR HUBERT
+roslaunch ur10e_sim_control launch_ur10e_controller.launch controller_type:=PureCartV tool:=cylinder1 planner:=false IK_solver:=false collision_node:=false
