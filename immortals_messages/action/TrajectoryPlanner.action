@@ -1,10 +1,10 @@
 #goal
-Pose goalpose
+EulerPose goalpose
 duration max_time
 ---
 #result
 bool success
-Pose[] trajectory
+EulerPose[] trajectory
 ---
 #feedback
 int64 iterations

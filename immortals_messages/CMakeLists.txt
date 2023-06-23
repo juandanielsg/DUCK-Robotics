@@ -50,12 +50,12 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
-  Pose.msg
+  EulerPose.msg
   Path.msg
-  PoseArray.msg
+  EulerPoseArray.msg
   Reply.msg
   PathRequest.msg
-  PoseAndFlags.msg
+  EulerPoseAndFlags.msg
   IKRequest.msg
   IKReply.msg
 )

@@ -1,2 +1,2 @@
-Pose[] trajarray
+EulerPose[] trajarray
 bool success
