@@ -7,7 +7,7 @@ To improve this project:
 
 
 Current benchmarks:
-- Average loop speed (launch): 0.012s
+- Average loop speed (launch): 0.0043s
 
 WIP (QOL):
 - Add dependencies file for python.
