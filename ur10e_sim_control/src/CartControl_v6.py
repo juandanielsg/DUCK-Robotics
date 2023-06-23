@@ -2,8 +2,9 @@
 
 import rospy
 from std_msgs.msg import Float64MultiArray
+#from geometry_msgs.msg import Pose, Twist
 from sensor_msgs.msg import JointState
-from immortals_messages.msg import Pose, Path, PoseArray, PoseAndFlags, PathRequest, IKReply, IKRequest
+from immortals_messages.msg import EulerPose, Path, EulerPoseArray, EulerPoseAndFlags, PathRequest, IKReply, IKRequest
 import numpy as np
 import math
 import scipy
@@ -20,6 +21,13 @@ from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quat
 #Improve code - Duplicated rate.
 #Make it serial 
 #Standarize stuff
+
+#1. Publish tool pose in Pose (xyz quat)
+#2. Publish RCM in Pose
+#3. tool length (param)
+#4. Receive velocity in Twist
+
+
 
 
 class UR10e():
@@ -176,14 +184,14 @@ class UR10e():
         self.constraintVec = None
 
         #ROS publishers/subscribers
-        self.goalSub = rospy.Subscriber("/goal_pose", PoseAndFlags, self.goalcallback, queue_size=1)
+        self.goalSub = rospy.Subscriber("/goal_pose", EulerPoseAndFlags, self.goalcallback, queue_size=1)
         self.poseSub = rospy.Subscriber("/joint_states", JointState, self.callback)
-        self.velSub = rospy.Subscriber("/goal_speed", PoseAndFlags, self.speedCallback, queue_size=1)
+        self.velSub = rospy.Subscriber("/goal_speed", EulerPoseAndFlags, self.speedCallback, queue_size=1)
         self.velPub = rospy.Publisher("/joint_group_vel_controller/command", Float64MultiArray, queue_size=10)
-        self.posePub = rospy.Publisher("/current_pose", Pose, queue_size=1)
-        self.posesPub = rospy.Publisher("/current_poses", PoseArray, queue_size=1)
+        self.posePub = rospy.Publisher("/current_pose", EulerPose, queue_size=1)
+        self.posesPub = rospy.Publisher("/current_poses", EulerPoseArray, queue_size=1)
         self.pathPub = rospy.Publisher("/path_plan",Path,latch=True, queue_size=1)
-        self.constraintSub = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
+        self.constraintSub = rospy.Subscriber("/constraint", EulerPose, queue_size=1, callback=self.constraintCallback)
 
         #Planning ROS agents
         self.planRequester = rospy.Publisher("/path_requests", PathRequest, latch=True, queue_size=1)
@@ -548,7 +556,7 @@ class UR10e():
             msg = list2Pose(self.toolpose)
             self.posePub.publish(msg)
 
-            msg2 = PoseArray()
+            msg2 = EulerPoseArray()
             msg2.element_poses = [list2Pose(self.pose1), list2Pose(self.pose2), list2Pose(self.pose3), list2Pose(self.pose4), list2Pose(self.pose5), list2Pose(self.pose6), msg]
             self.posesPub.publish(msg2)
 
