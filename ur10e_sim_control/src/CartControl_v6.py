@@ -2,7 +2,7 @@
 
 import rospy
 from std_msgs.msg import Float64MultiArray
-#from geometry_msgs.msg import Pose, Twist
+from geometry_msgs.msg import Pose, Twist
 from sensor_msgs.msg import JointState
 from immortals_messages.msg import EulerPose, Path, EulerPoseArray, EulerPoseAndFlags, PathRequest, IKReply, IKRequest
 import numpy as np
@@ -186,12 +186,12 @@ class UR10e():
         #ROS publishers/subscribers
         self.goalSub = rospy.Subscriber("/goal_pose", EulerPoseAndFlags, self.goalcallback, queue_size=1)
         self.poseSub = rospy.Subscriber("/joint_states", JointState, self.callback)
-        self.velSub = rospy.Subscriber("/goal_speed", EulerPoseAndFlags, self.speedCallback, queue_size=1)
+        self.velSub = rospy.Subscriber("/goal_speed", Twist, self.speedCallback, queue_size=1)
         self.velPub = rospy.Publisher("/joint_group_vel_controller/command", Float64MultiArray, queue_size=10)
-        self.posePub = rospy.Publisher("/current_pose", EulerPose, queue_size=1)
+        self.posePub = rospy.Publisher("/current_pose", Pose, queue_size=1)
         self.posesPub = rospy.Publisher("/current_poses", EulerPoseArray, queue_size=1)
         self.pathPub = rospy.Publisher("/path_plan",Path,latch=True, queue_size=1)
-        self.constraintSub = rospy.Subscriber("/constraint", EulerPose, queue_size=1, callback=self.constraintCallback)
+        self.constraintSub = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
 
         #Planning ROS agents
         self.planRequester = rospy.Publisher("/path_requests", PathRequest, latch=True, queue_size=1)
@@ -377,7 +377,7 @@ class UR10e():
 
     def speedCallback(self,msg):
 
-        speed = [msg.pose.x, msg.pose.y, msg.pose.z, msg.pose.roll, msg.pose.pitch, msg.pose.yaw]
+        speed = [msg.linear.x, msg.linear.y, msg.linear.z, msg.angular.x, msg.angular.y, msg.angular.z]
         self.goalSpeed = np.array(speed)
         self.useConstraint = msg.constraint
         self.currentEstimatePose, self.currentEToolPose = None, None
@@ -405,7 +405,7 @@ class UR10e():
 
     def constraintCallback(self, msg):
 
-        self.constraint = pose2Array(msg)
+        self.constraint = np.array([msg.position.x, msg.position.y, msg.position.z, 0.0, 0.0, 0.0])
         self.receivedConstraint = True
         mat = euler_to_so3(self.constraint[3:])
         self.constraintVec = mat @ self.baseVec
@@ -549,11 +549,21 @@ class UR10e():
 
                 self.FK_constraint()
 
-            w, x, y, z = get_quaternion_from_euler(self.pose6[3],self.pose6[4],self.pose6[5])
+            w, x, y, z = get_quaternion_from_euler(self.toolpose[3],self.toolpose[4],self.toolpose[5])
             
             self.qt = np.quaternion(w,x,y,z)
 
-            msg = list2Pose(self.toolpose)
+            msg = Pose()
+
+            msg.position.x = self.toolpose[0]
+            msg.position.y = self.toolpose[1]
+            msg.position.z = self.toolpose[2]
+            msg.orientation.w = w
+            msg.orientation.x = x
+            msg.orientation.y = y 
+            msg.orientation.z = z
+
+
             self.posePub.publish(msg)
 
             msg2 = EulerPoseArray()
