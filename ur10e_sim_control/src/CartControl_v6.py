@@ -332,11 +332,11 @@ class UR10e():
             if self.num_error is not None:
                 print("Error (scalar): ", self.num_error)
             
-            print("Current EE Pose: ", *np.round(self.pose6,3))
-            print("Expected pose: ", *np.round(self.currentEstimatePose,3))
+#            print("Current EE Pose: ", *np.round(self.pose6,3))
+#            print("Expected pose: ", *np.round(self.currentEstimatePose,3))
 
-            print("Current tooltip Pose: ", *np.round(self.toolpose,3))
-            print("Expected tootip Pose: ", *np.round(self.currentEToolPose,3))
+#            print("Current tooltip Pose: ", *np.round(self.toolpose,3))
+#            print("Expected tootip Pose: ", *np.round(self.currentEToolPose,3))
     
     def printPoses(self):
 
@@ -379,7 +379,7 @@ class UR10e():
 
         speed = [msg.linear.x, msg.linear.y, msg.linear.z, msg.angular.x, msg.angular.y, msg.angular.z]
         self.goalSpeed = np.array(speed)
-        self.useConstraint = msg.constraint
+        self.useConstraint = True #msg.constraint
         self.currentEstimatePose, self.currentEToolPose = None, None
         self.sum_e = None
         self.prev_e = None

@@ -2,7 +2,7 @@ import rospy
 import os
 from ur10e_sim_control.VisualUtility import visualizationController, HitboxGroup
 from ur10e_sim_control.Utility import bcolors
-from immortals_messages.msg import Pose
+from geometry_msgs.msg import Pose
 import numpy
 
 def definePoint(xyzrpy):

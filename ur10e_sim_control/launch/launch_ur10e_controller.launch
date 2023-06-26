@@ -13,33 +13,49 @@
   <arg name="constraint" default="true"/>
 
 
-  <arg name="controller_type" default="poseC"/>
-  <arg name="tool" default="none"/>
+  <arg name="controller_type" default="PureCartV"/>
+  <arg name="tool" default="cylinder1"/>
 
   <group if="$(arg config_setter)">
     <node name="setConfigurationNode" pkg="ur10e_sim_control" type="setRobotConfig.py" output="screen" launch-prefix="gnome-terminal --"/>
   </group>
-  <group if="$(arg message_node)">
-    <node name="talker" pkg="ur10e_sim_control" type="goalPublisher.py" output="screen" launch-prefix="gnome-terminal --"/>
+<!--  <group if="$(arg message_node)">
+    <node name="talker" pkg="ur10e_sim_control" type="goalPublisher.py" output="screen" launch-prefix="gnome-terminal -"/>
   </group>
   <group if="$(arg visualizer)">
-    <node name="VisualizerNode" pkg="ur10e_sim_control" type="VisualizerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+    <node name="VisualizerNode" pkg="ur10e_sim_control" type="VisualizerNode.py" output="screen" launch-prefix="gnome-terminal -"/>
   </group>
   <group if="$(arg collision_node)">
-    <node name="collisionNode" pkg="ur10e_sim_control" type="collisionCheckerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+    <node name="collisionNode" pkg="ur10e_sim_control" type="collisionCheckerNode.py" output="screen" launch-prefix="gnome-terminal -"/>
   </group>
   <group if="$(arg planner)">
-    <node name="PlanningNode" pkg="ur10e_sim_control" type="PlannerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+    <node name="PlanningNode" pkg="ur10e_sim_control" type="PlannerNode.py" output="screen" launch-prefix="gnome-terminal -"/>
   </group>
   <group  if="$(arg IK_solver)">
-    <node name="IK_Solver" pkg="ur10e_sim_control" type="IKSolverNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+    <node name="IK_Solver" pkg="ur10e_sim_control" type="IKSolverNode.py" output="screen" launch-prefix="gnome-terminal -"/>
   </group>
   <group  if="$(arg constraint)">
-    <node name="constraint_setter" pkg="ur10e_sim_control" type="setConstraintNode.py" output="screen" launch-prefix="gnome-terminal --"/>
-  </group>
+    <node name="constraint_setter" pkg="ur10e_sim_control" type="setConstraintNode.py" output="screen" launch-prefix="gnome-terminal -"/>
+  </group>-->
 
   <node name="CartesianController" pkg="ur10e_sim_control" type="CartControl_v6.py" output="screen" launch-prefix="gnome-terminal --"/>
   <param name="controller_type" type="string" value="$(arg controller_type)"/>
   <param name="tool" type="string" value="$(arg tool)"/>
+
+    <node name="constraint" pkg="rostopic" type="rostopic"
+      args="pub /constraint geometry_msgs/Pose '{position: {x: 0.69, y: 0.18, z: 0.40}, orientation: {w: 1.0, x: 0.0, y: 0.0, z: 0.0}}'"/>
+
+    <!-- Keyboard input -->
+    <node name="keyboard_input" pkg="teleop_twist_keyboard" type="teleop_twist_keyboard.py" output="screen" launch-prefix="gnome-terminal --"/>
+    <remap from="/input/tool_twist" to="/cmd_vel"/>
+
+    <!-- Dahroug RCM -->
+    <node name="dahroug_rcm" pkg="dahroug_rcm" type="dahroug_rcm_simu.py" output="screen">
+        <remap from="input/rcm_pose" to="/constraint"/>
+        <remap from="/output/end_effector_twist" to="/goal_speed"/>
+        <remap from="/input/tool_pose" to="/current_pose"/>
+    </node>
+    <!--<remap from="/current_pose" to="/input/tool_pose"/>
+    <remap from="/goal_speed" to="/output/end_effector_twist"/>-->
 
 </launch>
