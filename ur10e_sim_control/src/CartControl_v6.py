@@ -116,10 +116,14 @@ class UR10e():
         #PID Params - Here is something that I want to fix.
 
         #Before -> 1 less 0 on each one. Perhaps even 2
+        
+        #HERE: Change your PID values
 
         #self.Kp = 0.0001
         #self.Ki = 0.00001
         #self.Kd = 0.000003
+        
+        #HERE: Change your PID values
 
         self.Kp = 0.01
         self.Ki = 0.0001
@@ -132,8 +136,8 @@ class UR10e():
         self.D = None
 
         self.error = None
-        self.prev_e = None
-        self.sum_e = None
+        self.prev_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
+        self.sum_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
 
         self.previousPose = None
         self.currentEstimatePose = None
@@ -381,8 +385,8 @@ class UR10e():
         self.goalSpeed = np.array(speed)
         self.useConstraint = True #msg.constraint
         self.currentEstimatePose, self.currentEToolPose = None, None
-        self.sum_e = None
-        self.prev_e = None
+        self.sum_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
+        self.prev_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
     
     def planCallback(self, msg):
 
@@ -1007,13 +1011,13 @@ class UR10e():
 
         self.error = error
 
-        if self.sum_e is not None:
+        if np.all(self.sum_e==0.0):
             self.sum_e += (error * self.dt)
             
         else:
             self.sum_e = error * self.dt
         
-        if self.prev_e is None:
+        if np.all(self.prev_e==0.0)
             self.prev_e = self.error
         
         P = error * self.Kp
