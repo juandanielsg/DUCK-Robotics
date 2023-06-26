@@ -6,7 +6,8 @@ import numpy.matlib as matlib
 from math import sin, cos, atan2, sqrt, asin
 from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
-from immortals_messages.msg import Pose, PoseArray, Path
+from geometry_msgs.msg import Pose
+from immortals_messages.msg import EulerPose, EulerPoseArray, Path
 from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain, build_se3_transform, position2Pose, pose2Array, euler_to_so3
 from visualization_msgs.msg import Marker, MarkerArray
 import quaternion
@@ -172,7 +173,7 @@ class visualizationController():
     def __init__(self, subscriber_topic=None, visual_subscriber_topic=None, publisher_topic=None):
 
         if visual_subscriber_topic:
-            self.visualizeSubscriber = rospy.Subscriber(visual_subscriber_topic, Pose, self.robotCallback)
+            self.visualizeSubscriber = rospy.Subscriber(visual_subscriber_topic, EulerPose, self.robotCallback)
         if subscriber_topic:
             self.pathSubscriber = rospy.Subscriber(subscriber_topic, Path, self.pathCallback)
         if publisher_topic:
@@ -191,7 +192,7 @@ class visualizationController():
     
     def constraintCallback(self, msg):
 
-        self.constraint = MarkerData(pose2Array(msg), color=(1,1,0,0), size=(0.05,0.05,0.05))
+        self.constraint = MarkerData(np.array([msg.position.x, msg.position.y, msg.position.z,0.0,0.0,0.0]), color=(1,1,0,0), size=(0.05,0.05,0.05))
 
         message = self.constraint.get()
         self.constraintExists = True
@@ -208,9 +209,6 @@ class visualizationController():
         self.markers.updateMarkers(self.currentPose)
         if self.goalExists:
             self.publishMarkers()
-        
-        if self.constraintExists:
-            self.updateConstraint(np.array(self.currentPose))
 
 
     def pathCallback(self, msg):
@@ -233,7 +231,10 @@ class visualizationController():
 
         """Update when axis aligned"""
 
-        if np.linalg.norm(np.cross(pose[3:], self.planeVector)) <= 0.001:
+        mat = euler_to_so3(pose[3:])
+        ee_vector = mat @ self.baseVector
+
+        if np.linalg.norm(np.cross(ee_vector, self.planeVector)) <= 0.01:
 
             self.constraint.setColor((1,1,0,1))
 
@@ -252,7 +253,7 @@ class Hitbox(MarkerData):
     """Class for collision avoidance. Assumes all hitboxes will be spheres.
     """
 
-    def __init__(self, pose, shape=Marker.SPHERE, color = (0.3,1,0,0), size = (0.01, 0.01, 0.01)):
+    def __init__(self, pose, shape=Marker.SPHERE, color = (0.1,1,0,0), size = (0.01, 0.01, 0.01)):
 
         super().__init__(pose, shape, color, size)
         self.diameter = size[0]
@@ -274,7 +275,7 @@ class Hitbox(MarkerData):
         self.setPosition(self.position)
     
     def displayCollision(self):
-        self.setColor([1,1,0,0])
+        self.setColor([0.3,1,0,0])
     
     def __str__(self):
         return "Hitbox. Origin: " + str(self.position) + " / Radius: " + str(self.radius)
@@ -357,7 +358,7 @@ class HitboxGroup():
 
 
         self.init_(tool)
-        self.robotSubscriber = rospy.Subscriber(sub_topic, PoseArray, self.robotCallback)
+        self.robotSubscriber = rospy.Subscriber(sub_topic, EulerPoseArray, self.robotCallback)
         self.collisionPublisher = rospy.Publisher(pub_topic, Bool, queue_size=1)
         
         self.tool = tool
