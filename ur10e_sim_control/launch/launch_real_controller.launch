@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<launch>
+
+  <!-- This should link RVIZ to the real robot -->
+  <include file="$(find ur_description)/launch/view_ur10e.launch"/>
+
+  <arg name="message_node" default="true"/>
+  <arg name="visualizer" default="true"/>
+
+  <arg name="tool" default="none"/>
+  <arg name="controller_type" default="pureCartV"/>
+
+  <param name="tool" type="string" value="$(arg tool)"/>
+  <param name="controller_type" type="string" value="$(arg controller_type)"/>
+  
+  <group if="$(arg message_node)">
+    <node name="talker" pkg="ur10e_sim_control" type="goalPublisher.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <group if="$(arg visualizer)">
+    <node name="VisualizerNode" pkg="ur10e_sim_control" type="VisualizerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <node name="KDLController" pkg="ur10e_sim_control" type="CartesianControl.py" output="screen" launch-prefix="gnome-terminal --"/>
+
+</launch>
