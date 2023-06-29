@@ -5,7 +5,7 @@ import numpy.matlib as matlib
 from math import sin, cos, atan2, sqrt, asin
 from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
-from immortals_messages.msg import Pose, PoseArray, Reply
+from immortals_messages.msg import EulerPose, EulerPoseArray, Reply
 from std_msgs.msg import Bool
 import rospy
 
@@ -22,7 +22,6 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
-
 
 @dataclass
 class KinematicChain():
@@ -86,18 +85,15 @@ class KinematicChain():
 
         return currentHomogeneousTransformMatrix
 
-
 def list2Pose(poselist: list):
 
-    pose = Pose()
+    pose = EulerPose()
     pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw = poselist
     return pose
 
 def position2Pose(position: np.array):
 
     return np.append(position, np.zeros(3))
-
-
 
 def TransToRp(T):
     """Converts a homogeneous transformation matrix into a rotation matrix
@@ -144,7 +140,6 @@ def TransInv(T):
     Rt = np.array(R).T
     return np.r_[np.c_[Rt, -np.dot(Rt, p)], [[0, 0, 0, 1]]]
 
-
 def build_se3_transform(xyzrpy):
     """Creates an SE3 transform from translation and Euler angles.
 
@@ -165,7 +160,6 @@ def build_se3_transform(xyzrpy):
     se3[0:3, 0:3] = euler_to_so3(xyzrpy[3:6])
     se3[0:3, 3] = np.matrix(xyzrpy[0:3]).transpose()
     return se3
-
 
 def euler_to_so3(rpy):
     """Converts Euler angles to an SO3 rotation matrix.
@@ -194,7 +188,6 @@ def euler_to_so3(rpy):
                      [0, 0, 1]])
     R_zyx = R_z * R_y * R_x
     return R_zyx
-
 
 def so3_to_euler(so3):
 
@@ -230,7 +223,6 @@ def so3_to_euler(so3):
             raise ValueError("Could not find valid pitch angle")
         return np.matrix([roll, pitch_poss[1], yaw])
     
-
 def get_quaternion_from_euler(roll, pitch, yaw):
     """
     Convert an Euler angle to a quaternion.
@@ -272,8 +264,6 @@ def euler_from_quaternion(w, x, y, z):
 
     return [roll_x, pitch_y, yaw_z] # in radians
 
-
-
 #TODO: Light Hitbox class and derivates
 
 class LightHitbox():
@@ -301,8 +291,6 @@ class LightHitbox():
     def __str__(self):
 
         return "Light hitbox. Origin: " + str(self.position) + " / Diameter: " + str(self.diameter)
-
-
 
 class LightHitboxBodyLink():
 
@@ -388,7 +376,7 @@ class LightHitboxGroup():
         self.bodyChain = []
         self.externalObjects = [] #This is yet to be implemented
         self.init_()
-        self.robotSubscriber = rospy.Subscriber(sub_topic, PoseArray, self.robotCallback, queue_size=1000)
+        self.robotSubscriber = rospy.Subscriber(sub_topic, EulerPoseArray, self.robotCallback, queue_size=1000)
         self.collisionPublisher = rospy.Publisher(pub_topic, Reply, queue_size=1000, latch=True)
         
         #TODO: Grab some values to initialize this chain. This should be easy. - DONE
@@ -463,7 +451,6 @@ class LightHitboxGroup():
         msg.id = id
         self.collisionPublisher.publish(msg)
 
-
 def getErrorVectors(pose,goal,items=[True, True, True, True, True, True]):
 
     linearerror = goal[:3] - pose[:3]
@@ -490,7 +477,6 @@ def getErrorVectors(pose,goal,items=[True, True, True, True, True, True]):
 
     return [error, linearerror*items[:3], trueEulError*items[3:], positionRatio, eulerRatio]
 
-
 def getErrorVec(pose, goal):
 
     linearerror = goal[:3] - pose[:3]
@@ -506,7 +492,6 @@ def getErrorVec(pose, goal):
     #print(trueEulError)
 
     return np.append(linearerror, trueEulError)
-
 
 def getCloserPoint(pose, linearVector, angularVector, ratio1, ratio2, thresh=0.5):
 
@@ -568,15 +553,9 @@ def getInsertionPoint(rcm, rcmvector, length):
     pose = np.append(position, orientation[:2])
     return pose
 
-
 def pose2Array(pose):
 
     return np.array([pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw])
-
-
-
-
-#theta_end_effector = theta_tool_tip / L
 
 def getEEVelocity(ee, tool, tool_velocity):
     """
@@ -592,8 +571,6 @@ def getEEVelocity(ee, tool, tool_velocity):
     Angular_velocity = tool_velocity[3:]
 
     return np.append(Linear_velocity, Angular_velocity)
-
-
 
 def getEEJacobian(Hbe, Jacobian):
 
@@ -713,8 +690,6 @@ def VecToso3(omg):
                      [omg[2],       0, -omg[0]],
                      [-omg[1], omg[0],       0]])
 
-
-
 def calculate_velocity(starting_pose_rotating, starting_pose_target, vel_center, w_center):
     # Convert poses to numpy arrays
     if np.linalg.norm(w_center)==0:
@@ -747,7 +722,6 @@ def rotation_matrix_from_vectors(vec1, vec2):
     rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
     return rotation_matrix
 
-
 def euler_from_vectors(vec1, vec2):
 
     """Returns the rpy angles of vec2 given the reference frame Z oriented vector V1. Base would be (0,0,1)
@@ -755,11 +729,3 @@ def euler_from_vectors(vec1, vec2):
 
     R = rotation_matrix_from_vectors(vec1, vec2)
     return so3_to_euler(R)
-
-
-
-#To get the next ee point by using the velocity of the ee and having an rcm constraint.
-
-#We get the director vector from the rcm and the vector from (tool-ee), which points towards the tool and is therefore the correct vector
-
-#Then, we use the formulas for 

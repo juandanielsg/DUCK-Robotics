@@ -46,8 +46,8 @@ class ClosedLoopUR10e():
         self.K = 1
         
         #Denavit-Hartenberg parameters.
-        self.d = [0.1807, 0, 0, 0.17415, 0.11985, 0.11655]
-        self.a = [0, -0.6127, -0.57155, 0, 0, 0]
+        self.d = [0.1273, 0, 0, 0.163941, 0.1157, 0.0922]
+        self.a = [0, -0.612, -0.5723, 0, 0, 0]
         self.alpha = [math.pi/2, 0, 0, math.pi/2, -math.pi/2, 0]
 
         #Current link positions.
@@ -570,6 +570,10 @@ class ClosedLoopUR10e():
             self.an.append(0)
         
         return True, self.an
+
+    def solve(self, speedvec):
+
+        return self.J_inv @ np.array(speedvec)
 
 class IKSolver(ClosedLoopUR10e):
 

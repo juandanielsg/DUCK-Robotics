@@ -8,10 +8,9 @@ from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
 from geometry_msgs.msg import Pose
 from immortals_messages.msg import EulerPose, EulerPoseArray, Path
-from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, KinematicChain, build_se3_transform, position2Pose, pose2Array, euler_to_so3
+from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, position2Pose, euler_to_so3
 from visualization_msgs.msg import Marker, MarkerArray
 import quaternion
-from collections import deque
 from std_msgs.msg import Bool
 
 class MarkerData():
@@ -124,7 +123,6 @@ class MarkerList():
         
         return message
 
-    
     def addMarker(self, marker: MarkerData):
 
         self.markerList.append(marker)
@@ -173,7 +171,7 @@ class visualizationController():
     def __init__(self, subscriber_topic=None, visual_subscriber_topic=None, publisher_topic=None):
 
         if visual_subscriber_topic:
-            self.visualizeSubscriber = rospy.Subscriber(visual_subscriber_topic, EulerPose, self.robotCallback)
+            self.visualizeSubscriber = rospy.Subscriber(visual_subscriber_topic, Pose, self.robotCallback)
         if subscriber_topic:
             self.pathSubscriber = rospy.Subscriber(subscriber_topic, Path, self.pathCallback)
         if publisher_topic:
@@ -204,12 +202,12 @@ class visualizationController():
 
     def robotCallback(self, msg):
 
-        self.currentPose = [msg.x, msg.y, msg.z, msg.roll, msg.pitch, msg.yaw]
+        quat = euler_from_quaternion(msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z)
+        self.currentPose = [msg.position.x, msg.position.y, msg.position.z] + quat
 
         self.markers.updateMarkers(self.currentPose)
         if self.goalExists:
             self.publishMarkers()
-
 
     def pathCallback(self, msg):
 
@@ -245,10 +243,6 @@ class visualizationController():
         msg = self.constraint.get()
         self.constraintPublisher.publish(msg)            
 
-
-
-
-
 class Hitbox(MarkerData):
     """Class for collision avoidance. Assumes all hitboxes will be spheres.
     """
@@ -280,7 +274,6 @@ class Hitbox(MarkerData):
     def __str__(self):
         return "Hitbox. Origin: " + str(self.position) + " / Radius: " + str(self.radius)
     
-
 class HitboxBodyLink():
 
     """
