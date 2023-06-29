@@ -3,7 +3,8 @@
 import rospy
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import JointState
-from immortals_messages.msg import PoseAndFlags
+from immortals_messages.msg import EulerPoseAndFlags
+from geometry_msgs.msg import Twist
 import numpy as np
 import math
 import scipy
@@ -15,13 +16,10 @@ import datetime
 
 def talker(pub):
 
-    
-
     rospy.init_node('talker', anonymous=True)
     
-    msg = PoseAndFlags()
-    #<include file="$(find ur_description)/launch/load_ur10e.launch" />
-    #<include file="$(find ur_description)/launch/load_ur10e.launch"/>
+    msg = Twist()
+
     print("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~")
     print("Publisher to set goals.")
     print("All goals must be specified as X,Y,Z,R,P,Y.")
@@ -37,13 +35,12 @@ def talker(pub):
         
         try:
 
-            msg.pose.x = data[0]
-            msg.pose.y = data[1]
-            msg.pose.z = data[2]
-            msg.pose.roll = data[3]
-            msg.pose.pitch = data[4]
-            msg.pose.yaw = data[5]
-            msg.pose.jointNumber = 6
+            msg.linear.x = data[0]
+            msg.linear.y = data[1]
+            msg.linear.z = data[2]
+            msg.angular.x = data[3]
+            msg.angular.y = data[4]
+            msg.angular.z = data[5]
 
             print(msg)
 
@@ -59,13 +56,7 @@ def talker(pub):
             else:
 
                 print("Error: wrong format")
-            
-            
-            plan = int(input("Type '1' to add path planning: "))
-            if plan == 1:
-                msg.plan = True
-            else:
-                msg.plan = False
+        
             pub.publish(msg)
         
         except:
@@ -76,10 +67,10 @@ if __name__ == '__main__':
     try:
         controller = rospy.get_param('controller_type')
         if controller == "cartV" or controller == "jointV":
-            pub = rospy.Publisher('/goal_speed', PoseAndFlags, queue_size=10)
+            pub = rospy.Publisher('/goal_speed', Twist, queue_size=10)
         
         else:
-            pub = rospy.Publisher('/goal_pose', PoseAndFlags, queue_size=10)
+            pub = rospy.Publisher('/goal_pose', Twist, queue_size=10)
         talker(pub)
 
     except rospy.ROSInterruptException:
