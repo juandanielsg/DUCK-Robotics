@@ -1,6 +1,4 @@
-# DUCK
-### (Daniel´s Universal Controllers for Kinematics)
-
+# DUCK (Daniel´s Universal Controllers for Kinematics)
 <p align="center">
   <img src="DUCK/duck_logo_done.jpg" width="512"/>
 </p>
