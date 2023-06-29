@@ -1,7 +1,9 @@
 # DUCK
 ### (Daniel´s Universal Controllers for Kinematics)
-<img src="DUCK/duck_logo_done.jpg" width="512"/>
 
+<p align="center">
+  <img src="DUCK/duck_logo_done.jpg" width="512"/>
+</p>
 This project is a intuitive and user-friendly approach to cartesian control for the UR robot arms. The aim of the project is to add visual servoing and pose control from scratch using Python as the main language.
 
 To improve this project:
