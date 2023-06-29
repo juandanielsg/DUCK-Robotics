@@ -1,10 +1,9 @@
 # ur10e-control
 
-This project is a intuitive and user-friendly approach to cartesian control for the UR10e robot arm. The aim of the project is to add visual servoing and pose control from scratch using Python as the main language.
+This project is a intuitive and user-friendly approach to cartesian control for the UR robot arms. The aim of the project is to add visual servoing and pose control from scratch using Python as the main language.
 
 To improve this project:
-- Port to C++ (I am not going to do this, but would gladly allow anyone to do it and commit to this repository if they manage to do so - JD)
-
+- Port to C++ (I am not going to do this for now, but would gladly allow anyone to do it and commit to this repository if they manage to do so - JD)
 
 Current benchmarks:
 - Average loop speed (launch): 0.0043s
@@ -17,10 +16,5 @@ WIP (QOL):
 WIP (Functionality):
 - Add joint pose control for each joint.
 - Add self-collision avoidance. [DONE]
-- Add manipulability maximizing path planning.
-- Add KDL support.
-
-
-
-FOR HUBERT
-roslaunch ur10e_sim_control launch_ur10e_controller.launch controller_type:=PureCartV tool:=cylinder1 planner:=false IK_solver:=false collision_node:=false
+- Add manipulability maximizing path planning. [IMPOSSIBLE WITH CURRENT HARDWARE]*
+- Add KDL support. [PENDING REVIEW]
