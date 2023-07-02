@@ -16,7 +16,7 @@ WIP (QOL):
 - Add versions file.
 
 WIP (Functionality):
-- Add joint pose control for each joint.
+- Add joint pose control for each joint. [Doable, but not necessary]
 - Add self-collision avoidance. [DONE]
-- Add manipulability maximizing path planning. [IMPOSSIBLE WITH CURRENT HARDWARE]*
+- Add manipulability maximizing controllers. [FOR 7R arms and above]*
 - Add KDL support. [PENDING REVIEW]
