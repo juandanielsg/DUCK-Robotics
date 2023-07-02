@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<launch>
+
+  <!-- This should link RVIZ to the real robot -->
+  <include file="$(find ur_description)/launch/view_ur10e.launch"/>
+  <include file="$(find ur_gazebo)/launch/ur10e_bringup.launch" />
+
+  <arg name="message_node" default="true"/>
+  <arg name="visualizer" default="true"/>
+  <arg name="config_setter" default="true"/>
+  <arg name="constraint" default="true"/>
+
+  <arg name="tool" default="cylinder1"/>
+  <arg name="controller_type" default="pureCartV"/>
+
+  <param name="tool" type="string" value="$(arg tool)"/>
+  <param name="controller_type" type="string" value="$(arg controller_type)"/>
+  
+  <group if="$(arg message_node)">
+    <node name="talker" pkg="ur10e_sim_control" type="tkinter_demo.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <group if="$(arg visualizer)">
+    <node name="VisualizerNode" pkg="ur10e_sim_control" type="VisualizerNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <group if="$(arg config_setter)">
+    <node name="setConfigurationNode" pkg="ur10e_sim_control" type="setRobotConfig.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <group  if="$(arg constraint)">
+    <node name="constraint_setter" pkg="ur10e_sim_control" type="setConstraintNode.py" output="screen" launch-prefix="gnome-terminal --"/>
+  </group>
+
+  <node name="KDLController" pkg="ur10e_sim_control" type="CartesianControl.py" output="screen" launch-prefix="gnome-terminal --"/>
+
+</launch>
