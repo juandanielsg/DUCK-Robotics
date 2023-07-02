@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 import rospy
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Bool
 from geometry_msgs.msg import Pose, Twist
 from sensor_msgs.msg import JointState
 from immortals_messages.msg import EulerPose, Path, EulerPoseArray, EulerPoseAndFlags, PathRequest, IKReply, IKRequest
@@ -24,9 +24,9 @@ class UR():
                  'an', 'v', 'clamp_speed_1', 'clamp_speed_2', 'clamp_speed_3', 'clamp_speed_4', 'clamp_angle', 'KinChain', 'tool', 'EEHomMat', 'EErotation', 'EEtranslation',
                  'pose1', 'pose2', 'pose3', 'pose4', 'pose5', 'pose6', 'toolpose', 'J', 'J_inv', 'jointSpeed', 'Kp', 'Ki', 'Kd', 'dt', 'P', 'I', 'D',
                 'error', 'prev_e', 'sum_e', 'logfilename', 'log', 'qt', 'interpolations', 'num_error', 'goal', 'goalSpeed', 'goalqt', 'tmpGoal', 'tmpIndex', 'maxIndex',
-                'receivedGoal', 'planning', 'solvingIK', 'receivedConstraint', 'useConstraint', 'controlTool', #Flags
+                'receivedGoal', 'planning', 'solvingIK', 'receivedConstraint', 'useConstraint', 'controlTool', 'orderUpdate', #Flags
                  'goal_angles', 'IKPub', 'IKSub', 'controller', 'controllerFunc', 'previousPose', 'currentEstimatePose', 'currentEToolPose',
-                 'constraint', 'constraintVec', 'constraintSub', 'constraintPub', 'baseVec','currentCartesianSpeed','rcmpose'
+                 'constraint', 'constraintVec', 'constraintSub', 'constraintPub', 'baseVec','currentCartesianSpeed','rcmpose', 'toggleConstraintSub'
                 }
 
     def __init__(self, logfile=None, sim=True, tool='none', controller='cartP'):
@@ -38,8 +38,11 @@ class UR():
         self.K = 0.01
         
         #Denavit-Hartenberg parameters - Not modifiable.
-        self.d = [0.1273, 0, 0, 0.163941, 0.1157, 0.0922]
-        self.a = [0, -0.612, -0.5723, 0, 0, 0]
+        #self.d = [0.1273, 0, 0, 0.163941, 0.1157, 0.0922]
+        #self.a = [0, -0.612, -0.5723, 0, 0, 0]
+
+        self.d = [0.1807, 0, 0, 0.17415, 0.11985, 0.11655]
+        self.a = [0, -0.6127, -0.57155, 0, 0, 0]
         self.alpha = [math.pi/2, 0, 0, math.pi/2, -math.pi/2, 0]
 
         #Current link positions
@@ -113,8 +116,8 @@ class UR():
         #HERE: Change your PID values
 
         self.Kp = 0.9
-        self.Ki = 0.0
-        self.Kd = 0.0
+        self.Ki = 0.05
+        self.Kd = 0.1
 
         self.dt = 0.001
 
@@ -164,6 +167,7 @@ class UR():
         self.solvingIK = False
         self.useConstraint = False
         self.controlTool = False
+        self.orderUpdate = False
 
         #Setting up the controller to use
         self.controller = controller
@@ -183,6 +187,7 @@ class UR():
         self.posesPub = rospy.Publisher("/current_poses", EulerPoseArray, queue_size=1)
         self.pathPub = rospy.Publisher("/path_plan",Path,latch=True, queue_size=1)
         self.constraintSub = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
+        self.toggleConstraintSub = rospy.Subscriber("/toggle_rcm", Bool, queue_size=1, callback=self.toggleConstraintCallback)
 
         #Planning ROS agents
         self.planRequester = rospy.Publisher("/path_requests", PathRequest, latch=True, queue_size=1)
@@ -329,11 +334,12 @@ class UR():
             if self.num_error is not None:
                 print("Error (scalar): ", self.num_error)
             
-#            print("Current EE Pose: ", *np.round(self.pose6,3))
-#            print("Expected pose: ", *np.round(self.currentEstimatePose,3))
+            if self.currentEstimatePose is not None:
+                print("Current EE Pose: ", *np.round(self.pose6,3))
+                print("Expected pose: ", *np.round(self.currentEstimatePose,3))
 
-#            print("Current tooltip Pose: ", *np.round(self.toolpose,3))
-#            print("Expected tootip Pose: ", *np.round(self.currentEToolPose,3))
+                print("Current tooltip Pose: ", *np.round(self.toolpose,3))
+                print("Expected tootip Pose: ", *np.round(self.currentEToolPose,3))
     
     def printPoses(self):
 
@@ -360,10 +366,9 @@ class UR():
 
         data = [msg.linear.x, msg.linear.y, msg.linear.z, msg.angular.x, msg.angular.y, msg.angular.z]
         self.receivedGoal = True
-        self.useConstraint = msg.constraint
 
         if self.controller == "cartP" or self.controller == "jointP":
-            if msg.constraint:
+            if self.useConstraint:
                 self.setGoal(data, plan=False, interp=False)
             
             else:
@@ -376,8 +381,8 @@ class UR():
 
         speed = [msg.linear.x, msg.linear.y, msg.linear.z, msg.angular.x, msg.angular.y, msg.angular.z]
         self.goalSpeed = np.array(speed)
-        self.useConstraint = True
-        self.currentEstimatePose, self.currentEToolPose = None, None
+        self.orderUpdate = True
+        self.currentEstimatePose, self.currentEToolPose = self.pose6, self.toolpose
         self.sum_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
         self.prev_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
     
@@ -406,6 +411,13 @@ class UR():
         self.receivedConstraint = True
         mat = euler_to_so3(self.constraint[3:])
         self.constraintVec = mat @ self.baseVec
+
+    def toggleConstraintCallback(self, msg):
+
+        self.useConstraint = msg.data
+        self.orderUpdate = True
+        self.sum_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
+        self.prev_e = np.array([0.0,0.0,0.0,0.0,0.0,0.0])
 
     def quaternionInterpolation(self, steps=10):
 
@@ -560,7 +572,7 @@ class UR():
             self.posePub.publish(msg)
 
             msg2 = EulerPoseArray()
-            msg2.element_poses = [list2Pose(self.pose1), list2Pose(self.pose2), list2Pose(self.pose3), list2Pose(self.pose4), list2Pose(self.pose5), list2Pose(self.pose6), msg]
+            msg2.element_poses = [list2Pose(self.pose1), list2Pose(self.pose2), list2Pose(self.pose3), list2Pose(self.pose4), list2Pose(self.pose5), list2Pose(self.pose6), list2Pose(self.toolpose)]
             self.posesPub.publish(msg2)
 
             
@@ -569,7 +581,7 @@ class UR():
 
             self.pose6 = [None]*6
     
-    def FK_constraint(self):
+    def FK_constraint(self): #WIP
 
         """Computes forward kinematics considering that we add a virtual link between the end effector and the constraint.
         """
@@ -658,7 +670,7 @@ class UR():
         
         msg = Float64MultiArray()
         self.jointSpeed = jointspeed
-        #self.clampSpeed()   
+        #self.clampSpeed()  #this raises some errors tbh... idk what to do at this point, but it should be fixable.
         msg.data = self.jointSpeed
         self.velPub.publish(msg)
     
@@ -920,8 +932,9 @@ class UR():
         #True problem. We are not keeping in mind the current desired pose of the TOOL when running all these calculations.
         #Therefore, they are all wrong.
 
-        if self.currentEstimatePose is None:
-
+        if self.orderUpdate:
+            
+            self.orderUpdate = False
             self.currentEstimatePose = self.pose6
             self.currentEToolPose = self.toolpose
 
@@ -948,8 +961,7 @@ class UR():
         #D = Acceleration
 
 
-        _, linear, angular, _, _ = getErrorVectors(np.array(self.pose6),np.array(self.currentEstimatePose))
-        error = np.append(linear, angular)/self.dt
+        error = getErrorVec(np.array(self.pose6),np.array(self.currentEstimatePose))
         self.error = error
 
         if self.sum_e is not None:
@@ -982,7 +994,7 @@ class UR():
         self.prev_e = error
 
         self.calculateJointSpeed(desired_end_speed)
-        self.clampSpeed()
+        #self.clampSpeed()
         self.publishJointSpeed(self.jointSpeed)
 
     def speedPIDControl(self):
@@ -1021,12 +1033,13 @@ class UR():
 
         #Principle: given that we have a small enough time interval dt, we can approximate any trajectory as a series of linear speeds.
         
-        if self.currentEstimatePose is None:
+        if self.orderUpdate:
+            self.orderUpdate = False
             self.previousPose = self.pose6
             self.currentEstimatePose = self.pose6
             self.currentEToolPose = self.toolpose
 
-        error = getErrorVec(np.array(self.pose6),np.array(self.currentEstimatePose)) / self.dt
+        error = getErrorVec(np.array(self.pose6),np.array(self.currentEstimatePose))
         
         self.error = error
 
@@ -1068,7 +1081,7 @@ class UR():
         #self.clampSpeed()
         self.publishJointSpeed(self.jointSpeed)
 
-    def reachRCMSpeed_method2(self):
+    def reachRCMSpeed_method2(self): #WIP
 
         """Does the same but with RCM. Requires the RCM to be in the tool.
         """
@@ -1128,11 +1141,7 @@ class UR():
 
     def clampSpeed(self):
 
-        if self.controller == "cartV":
-            pass
-        
-        else:
-            self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_3, self.clamp_speed_4)
+        self.jointSpeed = np.clip(self.jointSpeed[:6], self.clamp_speed_3, self.clamp_speed_4)
 
         final_poses = np.array([self.a[i] + self.jointSpeed[i]*self.dt for i in range(6)])
         valid = (final_poses>=self.clamp_angle[0]) & (final_poses<=self.clamp_angle[1])
@@ -1165,7 +1174,7 @@ class UR():
         self.calculateJ()
 
         if self.goalSpeed is not None:
-            if self.useConstraint:
+            if self.useConstraint and self.receivedConstraint:
                 self.reachRCMSpeed()
             
             else:

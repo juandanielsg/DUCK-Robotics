@@ -24,7 +24,7 @@ def main():
     message[0] = 'robot'
     message[2] = ['shoulder_pan_joint','shoulder_lift_joint','elbow_joint','wrist_1_joint','wrist_2_joint','wrist_3_joint']
 
-    keywords = {'Home': [0,-1.5707,1.5707,-1.5707,-1.5707,0]}
+    keywords = {'Home': [0,-1.5707,1.5707,-1.5707,-1.5707,-1.5707]}
 
 
     while not rospy.is_shutdown():
