@@ -2,7 +2,7 @@
 <p align="center">
   <img src="DUCK/duck_logo_done.jpg" width="512"/>
 </p>
-This project is a intuitive and user-friendly approach to cartesian control for the UR robot arms. The aim of the project is to add visual servoing and pose control from scratch using Python as the main language.
+This project is a intuitive and user-friendly approach to cartesian control for the UR robot arms. The aim of the project is to add modular robot arm controllers from scratch using Python as the main language. It includes both kinematics and control.
 
 To improve this project:
 - Port to C++ (I am not going to do this for now, but would gladly allow anyone to do it and commit to this repository if they manage to do so - JD)
