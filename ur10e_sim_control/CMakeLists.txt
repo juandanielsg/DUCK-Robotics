@@ -167,8 +167,6 @@ include_directories(
 catkin_install_python(PROGRAMS
   src/goalPublisher.py
   #src/Utility.py
-  src/CartControl_v7.py
-  src/CartControl_v6.py
   src/CartesianControl.py
   src/VisualizerNode.py
   src/collisionCheckerNode.py
@@ -177,6 +175,7 @@ catkin_install_python(PROGRAMS
   src/setRobotConfig.py
   src/setConstraintNode.py
   src/PyKDL_control.py
+  src/tkinter_demo.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
