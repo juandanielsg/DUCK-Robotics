@@ -9,12 +9,15 @@
   <arg name="visualizer" default="true"/>
   <arg name="config_setter" default="true"/>
   <arg name="constraint" default="true"/>
+  <arg name="real" default="false"/>
 
   <arg name="tool" default="cylinder1"/>
   <arg name="controller_type" default="pureCartV"/>
 
   <param name="tool" type="string" value="$(arg tool)"/>
   <param name="controller_type" type="string" value="$(arg controller_type)"/>
+  <param name="real" type="bool" value="$(arg real)"/>
+  
   
   <group if="$(arg message_node)">
     <node name="talker" pkg="ur10e_sim_control" type="tkinter_demo.py" output="screen" launch-prefix="gnome-terminal --"/>
