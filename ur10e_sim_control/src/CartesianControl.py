@@ -26,10 +26,10 @@ class UR():
                 'error', 'prev_e', 'sum_e', 'logfilename', 'log', 'qt', 'interpolations', 'num_error', 'goal', 'goalSpeed', 'goalqt', 'tmpGoal', 'tmpIndex', 'maxIndex',
                 'receivedGoal', 'planning', 'solvingIK', 'receivedConstraint', 'useConstraint', 'controlTool', 'orderUpdate', #Flags
                  'goal_angles', 'IKPub', 'IKSub', 'controller', 'controllerFunc', 'previousPose', 'currentEstimatePose', 'currentEToolPose',
-                 'constraint', 'constraintVec', 'constraintSub', 'constraintPub', 'baseVec','currentCartesianSpeed','rcmpose', 'toggleConstraintSub'
+                 'constraint', 'constraintVec', 'constraintSub', 'constraintPub', 'baseVec','currentCartesianSpeed','rcmpose', 'toggleConstraintSub', 'EEPub'
                 }
 
-    def __init__(self, logfile=None, sim=True, tool='none', controller='cartP'):
+    def __init__(self, logfile=None, sim=True, tool='none', controller='cartP', real=False):
         
         # Constant
         self.baseVec = np.array([0,0,1])
@@ -37,12 +37,17 @@ class UR():
         # K value
         self.K = 0.01
         
-        #Denavit-Hartenberg parameters - Not modifiable.
-        #self.d = [0.1273, 0, 0, 0.163941, 0.1157, 0.0922]
-        #self.a = [0, -0.612, -0.5723, 0, 0, 0]
+        #Denavit-Hartenberg parameters - UR10
+        if real:
+            self.d = [0.1273, 0, 0, 0.163941, 0.1157, 0.0922]
+            self.a = [0, -0.612, -0.5723, 0, 0, 0]
 
-        self.d = [0.1807, 0, 0, 0.17415, 0.11985, 0.11655]
-        self.a = [0, -0.6127, -0.57155, 0, 0, 0]
+        #UR10e
+        else:
+            self.d = [0.1807, 0, 0, 0.17415, 0.11985, 0.11655]
+            self.a = [0, -0.6127, -0.57155, 0, 0, 0]
+
+        #Same alphas
         self.alpha = [math.pi/2, 0, 0, math.pi/2, -math.pi/2, 0]
 
         #Current link positions
@@ -116,8 +121,8 @@ class UR():
         #HERE: Change your PID values
 
         self.Kp = 0.9
-        self.Ki = 0.05
-        self.Kd = 0.1
+        self.Ki = 0.0
+        self.Kd = 0.0
 
         self.dt = 0.001
 
@@ -188,6 +193,7 @@ class UR():
         self.pathPub = rospy.Publisher("/path_plan",Path,latch=True, queue_size=1)
         self.constraintSub = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
         self.toggleConstraintSub = rospy.Subscriber("/toggle_rcm", Bool, queue_size=1, callback=self.toggleConstraintCallback)
+        self.EEPub = rospy.Publisher("/ee_pose", Pose, queue_size=1)
 
         #Planning ROS agents
         self.planRequester = rospy.Publisher("/path_requests", PathRequest, latch=True, queue_size=1)
@@ -570,6 +576,18 @@ class UR():
 
 
             self.posePub.publish(msg)
+
+            msg = Pose()
+
+            msg.position.x = self.pose6[0]
+            msg.position.y = self.pose6[1]
+            msg.position.z = self.pose6[2]
+            msg.orientation.w = w
+            msg.orientation.x = x
+            msg.orientation.y = y 
+            msg.orientation.z = z
+
+            self.EEPub.publish(msg)
 
             msg2 = EulerPoseArray()
             msg2.element_poses = [list2Pose(self.pose1), list2Pose(self.pose2), list2Pose(self.pose3), list2Pose(self.pose4), list2Pose(self.pose5), list2Pose(self.pose6), list2Pose(self.toolpose)]
@@ -1258,8 +1276,9 @@ def main():
 
     controller = rospy.get_param('controller_type')
     tool = rospy.get_param('tool')
+    real = rospy.get_param('real')
 
-    robot = UR(logfile=logpath, sim=True, tool=tool, controller=controller)
+    robot = UR(logfile=logpath, sim=True, tool=tool, controller=controller, real=real)
     cnt = 0
     ref_rate = 100
     time1 = time.time()
