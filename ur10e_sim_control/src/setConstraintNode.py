@@ -5,16 +5,12 @@ from ur10e_sim_control.Utility import bcolors
 from geometry_msgs.msg import Pose
 import numpy
 
-def definePoint(xyzrpy):
+def definePoint(xyzrpy=None):
 
     point = Pose()
-    point.x = xyzrpy[0]
-    point.y = xyzrpy[1]
-    point.z = xyzrpy[2]
-    point.roll = xyzrpy[3]
-    point.pitch = xyzrpy[4]
-    point.yaw = xyzrpy[5]
-
+    point.position.x = xyzrpy[0]
+    point.position.y = xyzrpy[1]
+    point.position.z = xyzrpy[2]
     return point
 
 def main(pub):
@@ -23,7 +19,7 @@ def main(pub):
 
     while not rospy.is_shutdown():
 
-        data = str(input("Set the desired goal, separated by commas: "))
+        data = str(input("Set the desired constraint pose (XYZrpy), separated by commas: "))
 
         data = [float(datum) for datum in data.split(",")]
         print(data)
