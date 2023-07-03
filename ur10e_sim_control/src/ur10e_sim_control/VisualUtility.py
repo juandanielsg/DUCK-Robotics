@@ -180,6 +180,8 @@ class visualizationController():
         self.constraintPublisher = rospy.Publisher("/visual_constraint", Marker, queue_size=1, latch=True)
         self.constraintSubscriber = rospy.Subscriber("/constraint", Pose, queue_size=1, callback=self.constraintCallback)
 
+        self.eeSub = rospy.Subscriber("/ee_pose", Pose, self.eeCallback)
+
         self.baseVector = np.array([0,0,1])
         self.planeVector = np.array([0,0,1])
         self.constraint = None
@@ -187,11 +189,14 @@ class visualizationController():
         self.currentPose = None
         self.goalExists = False
         self.constraintExists = False
+        self.currentEEPos = None
+        self.currentToolPos = None
+        self.currentConstraintPos = None
     
     def constraintCallback(self, msg):
 
         self.constraint = MarkerData(np.array([msg.position.x, msg.position.y, msg.position.z,0.0,0.0,0.0]), color=(1,1,0,0), size=(0.05,0.05,0.05))
-
+        self.currentConstraintPos = np.array([msg.position.x, msg.position.y, msg.position.z])
         message = self.constraint.get()
         self.constraintExists = True
 
@@ -205,6 +210,8 @@ class visualizationController():
         quat = euler_from_quaternion(msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z)
         self.currentPose = [msg.position.x, msg.position.y, msg.position.z] + quat
 
+        self.currentToolPos = np.array([msg.position.x, msg.position.y, msg.position.z])
+
         self.markers.updateMarkers(self.currentPose)
         if self.goalExists:
             self.publishMarkers()
@@ -215,7 +222,11 @@ class visualizationController():
 
         self.markers.set(data)
         self.goalExists = True
-    
+
+    def eeCallback(self, msg):
+
+        self.currentEEPos = np.array([msg.position.x, msg.position.y, msg.position.z])
+
     def publishMarkers(self):
 
         msg = self.markers.getMessage()
@@ -242,6 +253,18 @@ class visualizationController():
 
         msg = self.constraint.get()
         self.constraintPublisher.publish(msg)            
+
+    def getRCMError(self):
+
+        a = self.currentEEPos - self.currentConstraintPos
+
+        r = self.currentToolPos - self.currentEEPos
+        
+        min_t = np.clip(-a.dot(r) / (r.dot(r)), 0, 1)
+
+        d = a + min_t * r
+
+        return np.linalg.norm(d)
 
 class Hitbox(MarkerData):
     """Class for collision avoidance. Assumes all hitboxes will be spheres.
