@@ -6,7 +6,7 @@ import numpy.matlib as matlib
 from math import sin, cos, atan2, sqrt, asin
 from dataclasses import dataclass, replace, field, fields
 from typing import TypedDict
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Point
 from immortals_messages.msg import EulerPose, EulerPoseArray, Path
 from ur10e_sim_control.Utility import get_quaternion_from_euler, euler_from_quaternion, position2Pose, euler_to_so3
 from visualization_msgs.msg import Marker, MarkerArray
@@ -166,6 +166,68 @@ class MarkerList():
         """Adds two markerlists together"""
         self.markerList += markerlist.markerList
 
+class MarkerLine():
+
+    def __init__(self, size=0.005, color=[1,0.1,1,0.1]):
+
+        self.pathPublisher = rospy.Publisher("/tool_path", Marker, queue_size=1, latch=True)
+        self.line = Marker()
+        self.line.header.frame_id = "base_link"
+        self.line.id = 33
+        self.line.type = Marker.LINE_STRIP
+
+        self.line.scale.y = size
+        self.line.scale.z = size
+        self.line.scale.x = size
+
+        self.line.action = Marker.ADD
+        self.line.points = []
+
+        self.line.color.a = color[0]
+        self.line.color.r = color[1]
+        self.line.color.g = color[2]
+        self.line.color.b = color[3]
+
+        # marker orientaiton
+        self.line.pose.orientation.x = 0.0
+        self.line.pose.orientation.y = 0.0
+        self.line.pose.orientation.z = 0.0
+        self.line.pose.orientation.w = 1
+        self.line.pose.position.x = 0.0
+        self.line.pose.position.y = 0.0
+        self.line.pose.position.z = 0.0
+
+        self.condition = False
+
+
+
+    def append(self, point):
+
+        new_point = Point()
+        new_point.x = point[0]
+        new_point.y = point[1]
+        new_point.z = point[2]
+
+        self.line.points.append(new_point)
+    
+    def publish(self):
+        
+        if self.condition or len(self.line.points) >= 2:
+
+            self.condition = True
+
+            self.pathPublisher.publish(self.line)
+
+class PointLine(MarkerLine):
+
+    def __init__(self):
+
+        super().__init__(color=(1,1,1,0), size=0.001)
+
+        self.pathPublisher = rospy.Publisher("/rcm_path", Marker, queue_size=1, latch=True)
+        self.line.type = Marker.POINTS
+
+
 class visualizationController():
 
     def __init__(self, subscriber_topic=None, visual_subscriber_topic=None, publisher_topic=None):
@@ -182,6 +244,8 @@ class visualizationController():
 
         self.eeSub = rospy.Subscriber("/ee_pose", Pose, self.eeCallback)
 
+        #Publishers for path and rcm tool point
+
         self.baseVector = np.array([0,0,1])
         self.planeVector = np.array([0,0,1])
         self.constraint = None
@@ -192,10 +256,13 @@ class visualizationController():
         self.currentEEPos = None
         self.currentToolPos = None
         self.currentConstraintPos = None
+
+        self.tool_path = MarkerLine(size=0.001)
+        self.rcm_path = PointLine()
     
     def constraintCallback(self, msg):
 
-        self.constraint = MarkerData(np.array([msg.position.x, msg.position.y, msg.position.z,0.0,0.0,0.0]), color=(1,1,0,0), size=(0.05,0.05,0.05))
+        self.constraint = MarkerData(np.array([msg.position.x, msg.position.y, msg.position.z,0.0,0.0,0.0]),shape= Marker.CYLINDER, color=(0.6,0.1,0.1,1), size=(0.02,0.02,0.004))
         self.currentConstraintPos = np.array([msg.position.x, msg.position.y, msg.position.z])
         message = self.constraint.get()
         self.constraintExists = True
@@ -211,8 +278,9 @@ class visualizationController():
         self.currentPose = [msg.position.x, msg.position.y, msg.position.z] + quat
 
         self.currentToolPos = np.array([msg.position.x, msg.position.y, msg.position.z])
-
+        
         self.markers.updateMarkers(self.currentPose)
+
         if self.goalExists:
             self.publishMarkers()
 
@@ -263,6 +331,11 @@ class visualizationController():
         min_t = np.clip(-a.dot(r) / (r.dot(r)), 0, 1)
 
         d = a + min_t * r
+
+        #Add the marker to the list
+
+        position = self.currentConstraintPos + d
+        self.rcm_path.append(position)
 
         return np.linalg.norm(d)
 
